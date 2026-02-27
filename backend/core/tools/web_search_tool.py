@@ -13,6 +13,7 @@ import time
 import base64
 import replicate
 import httpx
+from urllib.parse import quote_plus, urlparse, parse_qs, unquote
 
 # TODO: add subpages, etc... in filters as sometimes its necessary 
 
@@ -117,7 +118,7 @@ class SandboxWebSearchTool(SandboxToolsBase):
             logging.warning("FIRECRAWL_API_KEY not configured - Web Scraping Tool will not be available")
 
         # Tavily asynchronous search client
-        self.tavily_client = AsyncTavilyClient(api_key=self.tavily_api_key)
+        self.tavily_client = AsyncTavilyClient(api_key=self.tavily_api_key) if self.tavily_api_key else None
 
     @openapi_schema({
         "type": "function",
@@ -175,10 +176,6 @@ IMPORTANT: For batch searches, pass query as a native array of strings, NOT as a
         Supports both single queries and batch queries for concurrent execution.
         """
         try:
-            # Check if Tavily API key is configured
-            if not self.tavily_api_key:
-                return self.fail_response("Web Search is not available. TAVILY_API_KEY is not configured.")
-            
             # Normalize num_results
             if num_results is None:
                 num_results = 10
@@ -310,6 +307,10 @@ IMPORTANT: For batch searches, pass query as a native array of strings, NOT as a
         - dict with success status, results, answer, images (with OCR & dimensions), and full response
         """
         try:
+            # Fallback for self-hosted setups without Tavily.
+            if not self.tavily_client:
+                return await self._execute_single_search_fallback(query, num_results)
+
             search_response = await self.tavily_client.search(
                 query=query,
                 max_results=num_results,
@@ -353,6 +354,89 @@ IMPORTANT: For batch searches, pass query as a native array of strings, NOT as a
                 "images": [],
                 "response": {},
                 "error": error_message
+            }
+
+    async def _execute_single_search_fallback(self, query: str, num_results: int) -> dict:
+        """Fallback web search provider using DuckDuckGo HTML results (no API key required)."""
+        try:
+            from bs4 import BeautifulSoup
+
+            url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
+            headers = {
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                )
+            }
+
+            async with get_http_client() as client:
+                response = await client.get(url, headers=headers, timeout=20.0, follow_redirects=True)
+                response.raise_for_status()
+
+            soup = BeautifulSoup(response.text, "html.parser")
+            result_nodes = soup.select(".result")
+            parsed_results = []
+
+            for node in result_nodes:
+                link = node.select_one("a.result__a")
+                if not link:
+                    continue
+
+                raw_href = (link.get("href") or "").strip()
+                final_url = raw_href
+                # DuckDuckGo often wraps result URLs via /l/?uddg=<encoded_target>.
+                if "duckduckgo.com/l/?" in raw_href:
+                    try:
+                        qs = parse_qs(urlparse(raw_href).query)
+                        if qs.get("uddg"):
+                            final_url = unquote(qs["uddg"][0])
+                    except Exception:
+                        pass
+
+                title = " ".join(link.get_text(" ", strip=True).split())
+                snippet_node = node.select_one(".result__snippet")
+                snippet = ""
+                if snippet_node:
+                    snippet = " ".join(snippet_node.get_text(" ", strip=True).split())
+
+                if not final_url or not title:
+                    continue
+
+                parsed_results.append({
+                    "title": title,
+                    "url": final_url,
+                    "content": snippet,
+                })
+
+                if len(parsed_results) >= num_results:
+                    break
+
+            success = len(parsed_results) > 0
+            fallback_response = {
+                "query": query,
+                "answer": "",
+                "results": parsed_results,
+                "images": [],
+                "provider": "duckduckgo_fallback",
+            }
+
+            return {
+                "success": success,
+                "results": parsed_results,
+                "answer": "",
+                "images": [],
+                "response": fallback_response,
+            }
+        except Exception as e:
+            error_message = str(e)
+            logging.error(f"Fallback web search failed for '{query}': {error_message}")
+            return {
+                "success": False,
+                "results": [],
+                "answer": "",
+                "images": [],
+                "response": {},
+                "error": error_message,
             }
 
     async def _enrich_images_with_metadata(self, images: list) -> list:

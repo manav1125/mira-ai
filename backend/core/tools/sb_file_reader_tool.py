@@ -526,12 +526,10 @@ Examples:
                         paths.append(candidate)
 
                 if not paths:
-                    return self.success_response({
-                        "query": query,
-                        "total_hits": 0,
-                        "results": [],
-                        "note": "No local files found to search. Upload files first, or use web tools for internet research."
-                    })
+                    return self.fail_response(
+                        "No local files found to search. Use web_search for internet research, "
+                        "or upload files first."
+                    )
 
             # Verify explicitly provided paths exist
             if file_paths or file_path:
@@ -588,12 +586,9 @@ Examples:
             resolved_files = deduped_files[:MAX_BATCH_SIZE]
 
             if not resolved_files:
-                return self.success_response({
-                    "query": query,
-                    "total_hits": 0,
-                    "results": [],
-                    "note": "No searchable files found in the selected paths."
-                })
+                return self.fail_response(
+                    "No searchable local files found. Use web_search for internet research."
+                )
 
             total_hits = 0
             formatted_results = []
