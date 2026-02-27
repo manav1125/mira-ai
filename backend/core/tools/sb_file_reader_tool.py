@@ -541,13 +541,33 @@ Examples:
             if not await self._ensure_kb():
                 return self.fail_response("Failed to initialize search. Try read_file instead.")
             
-            env = {"OPENAI_API_KEY": config.OPENAI_API_KEY} if config.OPENAI_API_KEY else {}
+            # Force kb/lss SQLite/cache locations to a writable path in ephemeral sandboxes.
+            # Some Daytona images set HOME/read-only paths that cause:
+            # "[search] ERROR unable to open database file".
+            env = {
+                "HOME": "/tmp",
+                "LSS_DIR": "/tmp/.lss",
+                "XDG_CACHE_HOME": "/tmp/.cache",
+            }
+            if config.OPENAI_API_KEY:
+                env["OPENAI_API_KEY"] = config.OPENAI_API_KEY
+
+            await self.sandbox.process.exec(
+                "mkdir -p /tmp/.lss /tmp/.cache",
+                cwd=self.workspace_path,
+                timeout=30,
+            )
             
             path_args = " ".join([shlex.quote(p) for p in paths])
             escaped_query = shlex.quote(query)
             cmd = f"kb search {path_args} {escaped_query} -k 10 --json"
             
             result = await self.sandbox.process.exec(cmd, env=env, cwd=self.workspace_path, timeout=120)
+
+            if result.exit_code != 0 and "unable to open database file" in (result.result or "").lower():
+                logger.warning("[SearchFile] Retrying kb search from /tmp due to sqlite path error")
+                await self.sandbox.process.exec("mkdir -p /tmp/.lss /tmp/.cache", cwd="/tmp", timeout=30)
+                result = await self.sandbox.process.exec(cmd, env=env, cwd="/tmp", timeout=120)
             
             if result.exit_code != 0:
                 logger.error(f"[SearchFile] kb search failed: {result.result}")
