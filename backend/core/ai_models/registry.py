@@ -196,7 +196,7 @@ class ModelFactory:
             "bedrock": BedrockConfig.get_haiku_arn(),
             "anthropic": "anthropic/claude-haiku-4-5-20251001",
             "grok": "openrouter/x-ai/grok-4.1-fast",
-            "openai": "openrouter/openai/gpt-4o-mini",
+            "openai": "openai/gpt-4o-mini",
             "minimax": "openrouter/minimax/minimax-m2.1",
             "kimi": "openrouter/moonshotai/kimi-k2.5",
         }
@@ -352,7 +352,7 @@ class ModelFactory:
             "bedrock": BedrockConfig.get_haiku_arn(),
             "anthropic": "anthropic/claude-haiku-4-5-20251001",
             "grok": "openrouter/x-ai/grok-4.1-fast",
-            "openai": "openrouter/openai/gpt-4o-mini",
+            "openai": "openai/gpt-4o-mini",
             "minimax": "openrouter/minimax/minimax-m2.1",
             "kimi": "openrouter/moonshotai/kimi-k2.5",
         }
@@ -554,9 +554,9 @@ class ModelFactory:
         return Model(
             id="kortix/gpt4o-mini",
             name="GPT-4o Mini",
-            litellm_model_id="openrouter/openai/gpt-4o-mini",
-            provider=ModelProvider.OPENROUTER,
-            aliases=["gpt-4o-mini", "gpt4o-mini", "openai/gpt-4o-mini"],
+            litellm_model_id="openai/gpt-4o-mini",
+            provider=ModelProvider.OPENAI,
+            aliases=["gpt-4o-mini", "gpt4o-mini", "openai/gpt-4o-mini", "openrouter/openai/gpt-4o-mini"],
             context_window=128_000,
             capabilities=[
                 ModelCapability.CHAT,
@@ -575,9 +575,9 @@ class ModelFactory:
         return Model(
             id="kortix/gpt-5-mini",
             name="GPT-5 Mini",
-            litellm_model_id="openrouter/openai/gpt-4o-mini",
-            provider=ModelProvider.OPENROUTER,
-            aliases=["gpt-4o-mini", "gpt4o-mini", "openai/gpt-4o-mini"],
+            litellm_model_id="openai/gpt-4o-mini",
+            provider=ModelProvider.OPENAI,
+            aliases=["gpt-4o-mini", "gpt4o-mini", "openai/gpt-4o-mini", "openrouter/openai/gpt-4o-mini"],
             context_window=128_000,
             capabilities=[
                 ModelCapability.CHAT,
@@ -745,6 +745,7 @@ class ModelRegistry:
         self._litellm_id_to_pricing["minimax/minimax-m2.1"] = PricingPresets.MINIMAX_M2
         self._litellm_id_to_pricing["openrouter/minimax/minimax-m2.1"] = PricingPresets.MINIMAX_M2
         self._litellm_id_to_pricing["openrouter/x-ai/grok-4.1-fast"] = PricingPresets.GROK_4_1_FAST
+        self._litellm_id_to_pricing["openai/gpt-4o-mini"] = PricingPresets.GPT_4O_MINI
         self._litellm_id_to_pricing["openrouter/openai/gpt-4o-mini"] = PricingPresets.GPT_4O_MINI
         self._litellm_id_to_pricing["openrouter/xiaomi/mimo-v2-flash"] = PricingPresets.MIMO_V2_FLASH
         self._litellm_id_to_pricing["openrouter/moonshotai/kimi-k2"] = PricingPresets.KIMI_K2
