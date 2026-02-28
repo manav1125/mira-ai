@@ -863,7 +863,8 @@ export function FileOperationToolView({
                 openPresentation(
                   presentationName,
                   project.sandbox.sandbox_url,
-                  slideNum
+                  slideNum,
+                  project.sandbox.id
                 );
               }}
               refreshTimestamp={Date.now()}
@@ -1120,7 +1121,8 @@ export function FileOperationToolView({
                           openPresentation(
                             presentationName,
                             project.sandbox.sandbox_url,
-                            slideNumber || 1
+                            slideNumber || 1,
+                            project.sandbox.id
                           );
                         }}
                         disabled={isStreaming}

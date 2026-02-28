@@ -382,6 +382,20 @@ async def start_agent_run(
             project_id = str(uuid.uuid4())
         if not thread_id:
             thread_id = str(uuid.uuid4())
+
+    # Ensure project exists before any tool execution can attempt sandbox resolution.
+    # This avoids a race where optimistic runs start tools before DB writes complete.
+    if is_new_thread and project_id:
+        from core.threads import repo as threads_repo
+        placeholder_name = f"{prompt[:30]}..." if len(prompt) > 30 else prompt if prompt else "Untitled"
+        try:
+            existing_project = await threads_repo.get_project(project_id)
+            if not existing_project:
+                await threads_repo.create_project(project_id, account_id, placeholder_name)
+                logger.info(f"✅ [AGENT_START] Pre-created project {project_id} for new run")
+        except Exception as e:
+            # Best effort only: create_new_thread_records also performs an UPSERT later.
+            logger.debug(f"[AGENT_START] Project pre-create skipped for {project_id}: {e}")
     
     agent_run_id = str(uuid.uuid4())
     

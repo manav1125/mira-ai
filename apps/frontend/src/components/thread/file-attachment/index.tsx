@@ -138,7 +138,8 @@ export function FileAttachment({
                         openPresentation(
                             presentationName,
                             project.sandbox.sandbox_url,
-                            slideNum || slideNumber || 1
+                            slideNum || slideNumber || 1,
+                            project.sandbox.id
                         );
                     }}
                     className={className}
@@ -690,4 +691,3 @@ export function FileAttachmentGrid({
 
 // Export AttachmentGroup for backward compatibility
 export { AttachmentGroup } from './AttachmentGroup';
-

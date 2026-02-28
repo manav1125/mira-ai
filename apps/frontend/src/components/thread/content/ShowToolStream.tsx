@@ -9,35 +9,37 @@ import type { Project } from '@/lib/api/threads';
 import { useQueryClient } from '@tanstack/react-query';
 import { threadKeys } from '@/hooks/threads/keys';
 import { backendApi } from '@/lib/api-client';
+import { useAuth } from '@/components/AuthProvider';
+import { fetchPresentationMetadata } from '@/components/thread/tool-views/utils/presentation-utils';
 
 /**
  * Optimistically extract a string field from partial/streaming JSON.
  * Works even when JSON is incomplete (still streaming).
- * 
+ *
  * @param jsonString - The potentially incomplete JSON string
  * @param fieldName - The field name to extract (e.g., 'file_path', 'file_contents')
  * @returns The extracted field value or null if not found
  */
 function extractFieldFromPartialJson(jsonString: string, fieldName: string): string | null {
     if (!jsonString || typeof jsonString !== 'string') return null;
-    
+
     // Look for the field in the JSON string
     // Pattern: "field_name": "value" or "field_name":"value"
     const pattern = new RegExp(`"${fieldName}"\\s*:\\s*"`, 'i');
     const match = jsonString.match(pattern);
-    
+
     if (!match || match.index === undefined) return null;
-    
+
     // Find the start of the value (after the opening quote)
     const valueStart = match.index + match[0].length;
     let value = '';
     let i = valueStart;
     let escaped = false;
-    
+
     // Parse the string value, handling escape sequences
     while (i < jsonString.length) {
         const char = jsonString[i];
-        
+
         if (escaped) {
             // Handle escape sequences
             switch (char) {
@@ -59,7 +61,7 @@ function extractFieldFromPartialJson(jsonString: string, fieldName: string): str
         }
         i++;
     }
-    
+
     // If we didn't find a closing quote, the JSON is still streaming
     // Return what we have so far (partial value)
     return value;
@@ -108,6 +110,7 @@ const SlideStreamPreview: React.FC<{
     onClick?: () => void;
     isStreaming?: boolean;
 }> = ({ toolCall, project, onClick, isStreaming = false }) => {
+    const { session } = useAuth();
     const [slideUrl, setSlideUrl] = useState<string | null>(null);
     const [iframeLoaded, setIframeLoaded] = useState(false);
     const [isLoadingMetadata, setIsLoadingMetadata] = useState(true);
@@ -117,8 +120,8 @@ const SlideStreamPreview: React.FC<{
     const queryClient = useQueryClient();
 
     // Check if tool is completed
-    const isCompleted = toolCall?.completed === true || 
-                       (toolCall?.tool_result !== undefined && 
+    const isCompleted = toolCall?.completed === true ||
+                       (toolCall?.tool_result !== undefined &&
                         toolCall?.tool_result !== null &&
                         (typeof toolCall.tool_result === 'object' || Boolean(toolCall.tool_result)));
 
@@ -128,10 +131,10 @@ const SlideStreamPreview: React.FC<{
         if (!args) return {};
         if (typeof args === 'object' && args !== null) return args as Record<string, unknown>;
         if (typeof args !== 'string') return {};
-        
+
         // args is now typed as string
         const argsStr: string = args;
-        
+
         // Try to parse string arguments
         try {
             return JSON.parse(argsStr);
@@ -231,26 +234,18 @@ const SlideStreamPreview: React.FC<{
 
         const fetchMetadata = async (retry: number = 0) => {
             try {
-                const sanitizedName = presentationName.replace(/[^a-zA-Z0-9\-_]/g, '').toLowerCase();
-                const metadataUrl = constructHtmlPreviewUrl(
-                    project.sandbox.sandbox_url,
-                    `presentations/${sanitizedName}/metadata.json`
-                );
-
-                const response = await fetch(`${metadataUrl}?t=${Date.now()}`, {
-                    cache: 'no-cache',
-                    headers: { 'Cache-Control': 'no-cache' },
+                const data = await fetchPresentationMetadata({
+                    presentationName,
+                    sandboxUrl: project.sandbox.sandbox_url,
+                    sandboxId: project.sandbox.id,
+                    accessToken: session?.access_token,
                 });
-
-                if (response.ok) {
-                    const data = await response.json();
-                    const slideData = data.slides?.[slideNumber];
-                    if (slideData?.file_path) {
-                        const url = constructHtmlPreviewUrl(project.sandbox.sandbox_url, slideData.file_path);
-                        setSlideUrl(url);
-                        setIsLoadingMetadata(false);
-                        return;
-                    }
+                const slideData = data.slides?.[slideNumber];
+                if (slideData?.file_path) {
+                    const url = constructHtmlPreviewUrl(project.sandbox.sandbox_url, slideData.file_path);
+                    setSlideUrl(url);
+                    setIsLoadingMetadata(false);
+                    return;
                 }
 
                 // Retry if not found yet (slide might still be generating)
@@ -280,7 +275,7 @@ const SlideStreamPreview: React.FC<{
                 clearTimeout(retryTimeoutRef.current);
             }
         };
-    }, [project?.sandbox?.sandbox_url, presentationName, slideNumber, isCompleted, isStreaming]);
+    }, [project?.sandbox?.sandbox_url, project?.sandbox?.id, presentationName, slideNumber, isCompleted, isStreaming, session?.access_token]);
 
     // During streaming, always show shimmer with generating state
     const isGenerating = !isCompleted || isStreaming;
@@ -464,7 +459,7 @@ export const ShowToolStream: React.FC<ShowToolStreamProps> = ({
     useEffect(() => {
         // Always update pending content immediately
         pendingContentRef.current = content;
-        
+
         const now = Date.now();
         const timeSinceLastUpdate = now - lastUpdateRef.current;
         const THROTTLE_MS = 150; // Increased from 100ms to allow smoother streaming
@@ -496,7 +491,7 @@ export const ShowToolStream: React.FC<ShowToolStreamProps> = ({
     const { rawToolName, parsedToolCall } = useMemo(() => {
         let rawName: string | null = null;
         let parsed: any = null;
-        
+
         try {
           parsed = JSON.parse(throttledContent);
           if (parsed.function?.name) {
@@ -512,21 +507,21 @@ export const ShowToolStream: React.FC<ShowToolStreamProps> = ({
             rawName = match[1];
           }
         }
-        
+
         return { rawToolName: rawName, parsedToolCall: parsed };
     }, [throttledContent]);
-    
+
     const toolName = getUserFriendlyToolName(rawToolName || '');
     const isEditFile = toolName === 'AI File Edit';
     const isCreateFile = toolName === 'Creating File';
     const isFullFileRewrite = toolName === 'Rewriting File';
-    
+
     const effectiveToolCall = toolCall || parsedToolCall;
-    
+
     // Check if tool is completed (has tool_result or completed flag)
     // tool_result can be an object with success/output/error, or just a truthy value
-    const isCompleted = effectiveToolCall?.completed === true || 
-                       (effectiveToolCall?.tool_result !== undefined && 
+    const isCompleted = effectiveToolCall?.completed === true ||
+                       (effectiveToolCall?.tool_result !== undefined &&
                         effectiveToolCall?.tool_result !== null &&
                         (typeof effectiveToolCall.tool_result === 'object' || Boolean(effectiveToolCall.tool_result)));
 
@@ -541,8 +536,8 @@ export const ShowToolStream: React.FC<ShowToolStreamProps> = ({
                 return { html: parsed.content, plainText: parsed.content };
             }
             if (parsed.arguments) {
-                const argsStr = typeof parsed.arguments === 'string' 
-                    ? parsed.arguments 
+                const argsStr = typeof parsed.arguments === 'string'
+                    ? parsed.arguments
                     : JSON.stringify(parsed.arguments);
                 return { html: argsStr, plainText: argsStr };
             }
@@ -591,7 +586,7 @@ export const ShowToolStream: React.FC<ShowToolStreamProps> = ({
         try {
             // Try to parse as JSON first
             const parsed = JSON.parse(throttledContent);
-            
+
             // For file operations, extract file_contents or code_edit
             if (STREAMABLE_TOOLS.FILE_OPERATIONS.has(toolName || '')) {
                 if (isEditFile && parsed.code_edit) {
@@ -674,8 +669,8 @@ export const ShowToolStream: React.FC<ShowToolStreamProps> = ({
             }
             // Check nested arguments for content fields
             if (parsed.arguments) {
-                const args = typeof parsed.arguments === 'string' ? 
-                    (() => { try { return JSON.parse(parsed.arguments); } catch { return null; } })() 
+                const args = typeof parsed.arguments === 'string' ?
+                    (() => { try { return JSON.parse(parsed.arguments); } catch { return null; } })()
                     : parsed.arguments;
                 if (args) {
                     if (args.file_contents) {
@@ -709,7 +704,7 @@ export const ShowToolStream: React.FC<ShowToolStreamProps> = ({
         } catch (e) {
             // JSON parse failed - this is streaming/partial JSON
             // Use optimistic parsing to extract fields from incomplete JSON
-            
+
             // Try to extract file contents from partial JSON (for file operations)
             const partialFileContents = extractFileContentsFromPartialJson(throttledContent);
             if (partialFileContents) {
@@ -717,27 +712,27 @@ export const ShowToolStream: React.FC<ShowToolStreamProps> = ({
                 const value = isFieldAnimating && smoothFieldValue ? smoothFieldValue : partialFileContents;
                 return { html: value, plainText: value };
             }
-            
+
             // Try to extract command from partial JSON
             const partialCommand = extractFieldFromPartialJson(throttledContent, 'command');
             if (partialCommand) {
                 const value = isFieldAnimating && smoothFieldValue ? smoothFieldValue : partialCommand;
                 return { html: `$ ${value}`, plainText: `$ ${value}` };
             }
-            
+
             // Try to extract query from partial JSON
             const partialQuery = extractFieldFromPartialJson(throttledContent, 'query');
             if (partialQuery) {
                 const value = isFieldAnimating && smoothFieldValue ? smoothFieldValue : partialQuery;
                 return { html: value, plainText: value };
             }
-            
+
             // Try to extract url from partial JSON
             const partialUrl = extractFieldFromPartialJson(throttledContent, 'url');
             if (partialUrl) {
                 return { html: partialUrl, plainText: partialUrl };
             }
-            
+
             // Try to extract text/message from partial JSON
             const partialText = extractFieldFromPartialJson(throttledContent, 'text') ||
                                extractFieldFromPartialJson(throttledContent, 'message');
@@ -816,10 +811,10 @@ export const ShowToolStream: React.FC<ShowToolStreamProps> = ({
     if (!toolName) {
         return null;
     }
-    
+
     if (isMediaGenTool) {
         const IconComponent = getToolIcon(rawToolName || '');
-        
+
         const isVideoGeneration = effectiveToolCall?.arguments?.video_options !== undefined ||
             (typeof effectiveToolCall?.arguments === 'string' && effectiveToolCall.arguments.includes('video_options'));
 
@@ -837,7 +832,7 @@ export const ShowToolStream: React.FC<ShowToolStreamProps> = ({
 
                 <div className={`relative w-full max-w-80 ${isVideoGeneration ? 'aspect-video' : 'aspect-square'} rounded-2xl overflow-hidden border border-neutral-200 dark:border-neutral-700/50`}>
                     <div className="absolute inset-[-50%] bg-gradient-to-br from-zinc-300/60 to-zinc-400/60 dark:from-zinc-600/60 dark:to-zinc-700/60 blur-2xl" />
-                    <div 
+                    <div
                         className={`absolute inset-[-50%] bg-gradient-to-br ${shimmerColorRef.current} blur-2xl transition-opacity duration-1000`}
                         style={{ opacity: showShimmerColor ? 1 : 0 }}
                     />
@@ -1020,4 +1015,4 @@ export const ShowToolStream: React.FC<ShowToolStreamProps> = ({
             />
         </div>
     );
-}; 
+};

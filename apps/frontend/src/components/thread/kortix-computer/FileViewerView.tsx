@@ -65,6 +65,7 @@ import { fileQueryKeys } from '@/hooks/files/use-file-queries';
 import { VersionBanner } from './VersionBanner';
 import { FileDownloadButton } from '../tool-views/shared/FileDownloadButton';
 import { useSandboxStatusWithAutoStart, isSandboxUsable } from '@/hooks/files/use-sandbox-details';
+import { fetchPresentationMetadata } from '../tool-views/utils/presentation-utils';
 
 
 
@@ -319,18 +320,15 @@ export function FileViewerView({
     }
 
     const validateFolder = async () => {
-      const sandboxUrl = project.sandbox.sandbox_url;
-      const sanitizedName = presentationFolderInfo.presentationName!.replace(/[^a-zA-Z0-9\-_]/g, '').toLowerCase();
-      const metadataUrl = `${sandboxUrl}/workspace/presentations/${sanitizedName}/metadata.json?t=${Date.now()}`;
-
       try {
-        const response = await fetch(metadataUrl, {
-          method: 'HEAD',
-          cache: 'no-cache',
+        await fetchPresentationMetadata({
+          presentationName: presentationFolderInfo.presentationName!,
+          sandboxUrl: project.sandbox.sandbox_url,
+          sandboxId: project.sandbox.id,
+          accessToken: session?.access_token,
         });
-        
         folderValidationRef.current = validationKey;
-        setIsFolderValidated(response.ok);
+        setIsFolderValidated(true);
       } catch {
         folderValidationRef.current = validationKey;
         setIsFolderValidated(false);
@@ -338,7 +336,7 @@ export function FileViewerView({
     };
 
     validateFolder();
-  }, [presentationFolderInfo.isFolder, presentationFolderInfo.presentationName, project?.sandbox?.sandbox_url, isFolderValidated]);
+  }, [presentationFolderInfo.isFolder, presentationFolderInfo.presentationName, project?.sandbox?.sandbox_url, project?.sandbox?.id, isFolderValidated, session?.access_token]);
 
   // Determine if this is a valid presentation
   // - Slide files: always valid (the file existing proves it's a real presentation)
@@ -850,8 +848,8 @@ export function FileViewerView({
 
     // Use slide number if available, otherwise start at slide 1
     const initialSlide = presentationSlideInfo.slideNumber || 1;
-    presentationViewerStore.openPresentation(presentationName, project.sandbox.sandbox_url, initialSlide);
-  }, [presentationName, project?.sandbox?.sandbox_url, presentationViewerStore, presentationSlideInfo.slideNumber]);
+    presentationViewerStore.openPresentation(presentationName, project.sandbox.sandbox_url, initialSlide, project.sandbox.id);
+  }, [presentationName, project?.sandbox?.sandbox_url, project?.sandbox?.id, presentationViewerStore, presentationSlideInfo.slideNumber]);
 
   // If folder validation failed (no metadata.json), navigate into it as a regular folder
   useEffect(() => {
@@ -969,6 +967,7 @@ export function FileViewerView({
           onClose={presentationViewerStore.closePresentation}
           presentationName={presentationViewerStore.presentationName}
           sandboxUrl={presentationViewerStore.sandboxUrl}
+          sandboxId={presentationViewerStore.sandboxId}
           initialSlide={presentationViewerStore.initialSlide}
         />
       </div>
@@ -1529,4 +1528,3 @@ export function FileViewerView({
     </div>
   );
 }
-

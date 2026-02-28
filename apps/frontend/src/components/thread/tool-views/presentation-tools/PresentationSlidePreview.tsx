@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { PresentationSlideCard } from './PresentationSlideCard';
-import { constructHtmlPreviewUrl } from '@/lib/utils/url';
 import { Project } from '@/lib/api/threads';
 import { RefreshCw, Presentation } from 'lucide-react';
 import { KortixLoader } from '@/components/ui/kortix-loader';
 import { usePresentationViewerStore } from '@/stores/presentation-viewer-store';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/components/AuthProvider';
+import { fetchPresentationMetadata } from '../utils/presentation-utils';
 
 interface PresentationSlidePreviewProps {
   presentationName: string;
@@ -32,10 +33,6 @@ interface PresentationMetadata {
   updated_at: string;
 }
 
-const sanitizeFilename = (name: string): string => {
-  return name.replace(/[^a-zA-Z0-9\-_]/g, '').toLowerCase();
-};
-
 export function PresentationSlidePreview({
   presentationName,
   project,
@@ -44,6 +41,7 @@ export function PresentationSlidePreview({
   initialSlide,
 }: PresentationSlidePreviewProps) {
   const { openPresentation } = usePresentationViewerStore();
+  const { session } = useAuth();
   const [metadata, setMetadata] = useState<PresentationMetadata | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -62,29 +60,16 @@ export function PresentationSlidePreview({
     setRetryCount(retry);
 
     try {
-      const sanitizedName = sanitizeFilename(presentationName);
-      const metadataUrl = constructHtmlPreviewUrl(
-        project.sandbox.sandbox_url,
-        `presentations/${sanitizedName}/metadata.json`
-      );
-
-      const urlWithCacheBust = `${metadataUrl}?t=${Date.now()}`;
-      console.log(`[PresentationSlidePreview] Loading metadata (attempt ${retry + 1}):`, urlWithCacheBust);
-      
-      const response = await fetch(urlWithCacheBust, {
-        cache: 'no-cache',
-        headers: { 'Cache-Control': 'no-cache' },
+      const data = await fetchPresentationMetadata({
+        presentationName,
+        sandboxUrl: project.sandbox.sandbox_url,
+        sandboxId: project.sandbox.id,
+        accessToken: session?.access_token,
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        console.log('[PresentationSlidePreview] Metadata loaded successfully:', data);
-        setMetadata(data);
-        setIsLoading(false);
-        setError(null);
-      } else {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
+      console.log('[PresentationSlidePreview] Metadata loaded successfully:', data);
+      setMetadata(data);
+      setIsLoading(false);
+      setError(null);
     } catch (err) {
       console.error(`[PresentationSlidePreview] Error loading metadata (attempt ${retry + 1}):`, err);
       
@@ -101,7 +86,7 @@ export function PresentationSlidePreview({
         setIsLoading(false);
       }
     }
-  }, [presentationName, project?.sandbox?.sandbox_url]);
+  }, [presentationName, project?.sandbox?.sandbox_url, project?.sandbox?.id, session?.access_token]);
 
   useEffect(() => {
     loadMetadata(0);
@@ -168,7 +153,7 @@ export function PresentationSlidePreview({
       onFullScreenClick(slideNumber);
     } else if (openPresentation && project?.sandbox?.sandbox_url) {
       // Open full screen presentation viewer directly using shared context
-      openPresentation(presentationName, project.sandbox.sandbox_url, slideNumber);
+      openPresentation(presentationName, project.sandbox.sandbox_url, slideNumber, project.sandbox.id);
     }
   };
 
@@ -182,4 +167,3 @@ export function PresentationSlidePreview({
     />
   );
 }
-

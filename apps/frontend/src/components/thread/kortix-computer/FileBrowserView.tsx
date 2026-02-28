@@ -826,7 +826,7 @@ export function FileBrowserView({
           // In library view, open presentation in fullscreen viewer modal
           if (isLibraryView && project?.sandbox?.sandbox_url) {
             const presentationName = file.path.split('/').pop() || 'presentation';
-            openPresentation(presentationName, project.sandbox.sandbox_url, 1);
+            openPresentation(presentationName, project.sandbox.sandbox_url, 1, project.sandbox.id);
           } else {
             // In side panel view, use kortix computer store
             openFile(file.path);
@@ -2307,4 +2307,3 @@ export function FileBrowserView({
     </div>
   );
 }
-

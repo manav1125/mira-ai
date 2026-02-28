@@ -24,13 +24,53 @@ class SandboxToolsBase(Tool):
         if self._sandbox_info is None:
             try:
                 client = await self.thread_manager.db.client
-                
+
                 project = await client.table('projects').select(
                     'project_id, account_id'
                 ).eq('project_id', self.project_id).execute()
-                
+
+                # Recover from optimistic/thread context drift:
+                # if the incoming project_id doesn't exist, remap from thread_id when available.
+                if (not project.data or len(project.data) == 0) and self.thread_manager and self.thread_manager.thread_id:
+                    thread_lookup = await client.table('threads').select(
+                        'thread_id, project_id, account_id'
+                    ).eq('thread_id', self.thread_manager.thread_id).limit(1).execute()
+                    if thread_lookup.data:
+                        remapped_project_id = thread_lookup.data[0].get('project_id')
+                        if remapped_project_id and remapped_project_id != self.project_id:
+                            logger.warning(
+                                f"[TOOL_BASE] Remapping project_id {self.project_id} -> {remapped_project_id} "
+                                f"from thread {self.thread_manager.thread_id}"
+                            )
+                            self.project_id = remapped_project_id
+                            project = await client.table('projects').select(
+                                'project_id, account_id'
+                            ).eq('project_id', self.project_id).limit(1).execute()
+
+                # Best-effort self-heal for race conditions where the project row has not been committed yet.
                 if not project.data or len(project.data) == 0:
-                    raise ValueError(f"Project {self.project_id} not found")
+                    account_id = getattr(self.thread_manager, "account_id", None)
+                    if account_id:
+                        try:
+                            from core.threads import repo as threads_repo
+                            await threads_repo.create_project(
+                                project_id=self.project_id,
+                                account_id=account_id,
+                                name="New Project",
+                            )
+                        except Exception:
+                            # Ignore duplicate/conflict errors and re-check below.
+                            pass
+
+                        project = await client.table('projects').select(
+                            'project_id, account_id'
+                        ).eq('project_id', self.project_id).limit(1).execute()
+
+                if not project.data or len(project.data) == 0:
+                    raise ValueError(
+                        f"Project {self.project_id} not found "
+                        f"(thread_id={getattr(self.thread_manager, 'thread_id', None)})"
+                    )
 
                 account_id = project.data[0].get('account_id')
                 

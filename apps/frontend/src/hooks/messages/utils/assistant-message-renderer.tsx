@@ -16,6 +16,8 @@ import { MediaGenerationInline } from '@/components/thread/content/MediaGenerati
 import { constructHtmlPreviewUrl } from '@/lib/utils/url';
 import { InlineCheckout, extractInlineCheckout } from '@/components/thread/content/InlineCheckout';
 import { UpgradeButtonCTA, extractUpgradeButton } from '@/components/thread/content/UpgradeButtonCTA';
+import { useAuth } from '@/components/AuthProvider';
+import { fetchPresentationMetadata } from '@/components/thread/tool-views/utils/presentation-utils';
 
 export interface AssistantMessageRendererProps {
   message: UnifiedMessage;
@@ -310,6 +312,7 @@ function SlideInlineThumbnail({
   onClick?: () => void;
   isLoading?: boolean;
 }) {
+  const { session } = useAuth();
   const [iframeLoaded, setIframeLoaded] = React.useState(false);
   const [slideUrl, setSlideUrl] = React.useState<string | null>(null);
   const [isLoadingMetadata, setIsLoadingMetadata] = React.useState(true);
@@ -323,24 +326,16 @@ function SlideInlineThumbnail({
 
     const fetchMetadata = async () => {
       try {
-        const sanitizedName = slideInfo.presentationName.replace(/[^a-zA-Z0-9\-_]/g, '').toLowerCase();
-        const metadataUrl = constructHtmlPreviewUrl(
-          project.sandbox.sandbox_url,
-          `presentations/${sanitizedName}/metadata.json`
-        );
-
-        const response = await fetch(`${metadataUrl}?t=${Date.now()}`, {
-          cache: 'no-cache',
-          headers: { 'Cache-Control': 'no-cache' },
+        const data = await fetchPresentationMetadata({
+          presentationName: slideInfo.presentationName,
+          sandboxUrl: project.sandbox.sandbox_url,
+          sandboxId: project.sandbox.id,
+          accessToken: session?.access_token,
         });
-
-        if (response.ok) {
-          const data = await response.json();
-          const slideData = data.slides?.[slideInfo.slideNumber];
-          if (slideData?.file_path) {
-            const url = constructHtmlPreviewUrl(project.sandbox.sandbox_url, slideData.file_path);
-            setSlideUrl(url);
-          }
+        const slideData = data.slides?.[slideInfo.slideNumber];
+        if (slideData?.file_path) {
+          const url = constructHtmlPreviewUrl(project.sandbox.sandbox_url, slideData.file_path);
+          setSlideUrl(url);
         }
       } catch (e) {
         console.error('Failed to load slide metadata:', e);
@@ -350,7 +345,7 @@ function SlideInlineThumbnail({
     };
 
     fetchMetadata();
-  }, [project?.sandbox?.sandbox_url, slideInfo?.presentationName, slideInfo?.slideNumber]);
+  }, [project?.sandbox?.sandbox_url, project?.sandbox?.id, slideInfo?.presentationName, slideInfo?.slideNumber, session?.access_token]);
 
   const isLoading = externalLoading || isLoadingMetadata;
   const showShimmer = isLoading || !slideUrl || !iframeLoaded;

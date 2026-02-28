@@ -8,6 +8,105 @@ export enum DownloadFormat {
   GOOGLE_SLIDES = 'google-slides',
 }
 
+export function sanitizePresentationName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9\-_]/g, '').toLowerCase();
+}
+
+interface FetchPresentationMetadataOptions {
+  presentationName: string;
+  sandboxUrl?: string;
+  sandboxId?: string;
+  accessToken?: string;
+  signal?: AbortSignal;
+}
+
+function getErrorSnippet(text: string): string {
+  return text
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 140);
+}
+
+async function parseJsonResponse(response: Response, sourceUrl: string): Promise<any> {
+  const bodyText = await response.text();
+
+  try {
+    return JSON.parse(bodyText);
+  } catch {
+    const snippet = getErrorSnippet(bodyText);
+    throw new Error(
+      `Expected JSON metadata but got non-JSON response from ${sourceUrl}: ${snippet || 'empty response'}`
+    );
+  }
+}
+
+/**
+ * Load presentation metadata with a resilient strategy:
+ * 1. Prefer backend sandbox file API (stable/authenticated path)
+ * 2. Fall back to direct sandbox URL for compatibility
+ */
+export async function fetchPresentationMetadata({
+  presentationName,
+  sandboxUrl,
+  sandboxId,
+  accessToken,
+  signal,
+}: FetchPresentationMetadataOptions): Promise<any> {
+  const sanitizedName = sanitizePresentationName(presentationName);
+  const errors: string[] = [];
+  const candidates: Array<{ url: string; headers?: Record<string, string> }> = [];
+
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || '';
+  if (backendUrl && sandboxId) {
+    try {
+      const normalizedBackendUrl = backendUrl.startsWith('http')
+        ? backendUrl
+        : `${typeof window !== 'undefined' ? window.location.origin : ''}${backendUrl.startsWith('/') ? '' : '/'}${backendUrl}`;
+      const apiUrl = new URL(`${normalizedBackendUrl.replace(/\/+$/, '')}/sandboxes/${sandboxId}/files/content`);
+      apiUrl.searchParams.append('path', `/workspace/presentations/${sanitizedName}/metadata.json`);
+      const headers: Record<string, string> = {};
+      if (accessToken) {
+        headers.Authorization = `Bearer ${accessToken}`;
+      }
+      candidates.push({ url: apiUrl.toString(), headers });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      errors.push(`invalid backend URL (${backendUrl}): ${message}`);
+    }
+  }
+
+  if (sandboxUrl) {
+    candidates.push({ url: `${sandboxUrl.replace(/\/+$/, '')}/presentations/${sanitizedName}/metadata.json` });
+  }
+
+  for (const candidate of candidates) {
+    const requestUrl = `${candidate.url}${candidate.url.includes('?') ? '&' : '?'}t=${Date.now()}`;
+    try {
+      const response = await fetch(requestUrl, {
+        cache: 'no-cache',
+        signal,
+        headers: {
+          'Cache-Control': 'no-cache',
+          ...(candidate.headers || {}),
+        },
+      });
+
+      if (!response.ok) {
+        const errText = await response.text().catch(() => '');
+        errors.push(`${candidate.url} -> HTTP ${response.status}${errText ? ` (${getErrorSnippet(errText)})` : ''}`);
+        continue;
+      }
+
+      return await parseJsonResponse(response, candidate.url);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      errors.push(`${candidate.url} -> ${message}`);
+    }
+  }
+
+  throw new Error(`Failed to load presentation metadata. ${errors.join(' | ')}`);
+}
+
 /**
  * Utility functions for handling presentation slide file paths
  */
