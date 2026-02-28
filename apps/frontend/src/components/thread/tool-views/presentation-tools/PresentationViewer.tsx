@@ -269,7 +269,7 @@ export function PresentationViewer({
   }, [project?.id, project?.sandbox?.id]);
 
   // Load metadata.json for the presentation with retry logic
-  const loadMetadata = useCallback(async (retryCount = 0, maxRetries = Infinity, forceRefresh = false) => {
+  const loadMetadata = useCallback(async (retryCount = 0, maxRetries = 8, forceRefresh = false) => {
     if (!extractedPresentationName) {
       setIsLoadingMetadata(false);
       return;
@@ -356,7 +356,12 @@ export function PresentationViewer({
         ? Math.min(1000 * Math.pow(2, retryCount), 10000)
         : 5000;
 
-      // Keep retrying indefinitely - don't set error state
+      if (retryCount >= maxRetries) {
+        setIsLoadingMetadata(false);
+        setError(errorMessage);
+        return;
+      }
+
       retryTimeoutRef.current = setTimeout(() => {
         loadMetadata(retryCount + 1, maxRetries, forceRefresh);
       }, delay);
@@ -844,7 +849,22 @@ export function PresentationViewer({
               />
             </div>
           </div>
-        ) : isLoadingMetadata || (extractedPresentationName && !metadata && !toolExecutionError) || (!toolResult && !isStreaming) ? (
+        ) : error && !metadata ? (
+          <div className="flex flex-col items-center justify-center h-full py-12 px-6 bg-gradient-to-b from-white to-zinc-50 dark:from-zinc-950 dark:to-zinc-900">
+            <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6 bg-gradient-to-b from-zinc-100 to-zinc-50 shadow-inner dark:from-zinc-800/40 dark:to-zinc-900/60">
+              <AlertTriangle className="h-10 w-10 text-zinc-500 dark:text-zinc-400" />
+            </div>
+            <h3 className="text-xl font-semibold mb-2 text-zinc-900 dark:text-zinc-100">
+              Unable to load slides
+            </h3>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400 text-center max-w-2xl mb-4">
+              {error}
+            </p>
+            <Button variant="outline" size="sm" onClick={() => loadMetadata(0, 8, true)}>
+              Retry
+            </Button>
+          </div>
+        ) : isLoadingMetadata || ((extractedPresentationName && !metadata && !toolExecutionError && !error) || (!toolResult && !isStreaming)) ? (
           // Loading state - show skeleton slides while:
           // 1. Fetching metadata, OR
           // 2. Have presentation name but no metadata yet, OR

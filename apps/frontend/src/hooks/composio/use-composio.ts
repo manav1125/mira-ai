@@ -37,7 +37,7 @@ export const useComposioToolkits = (search?: string, category?: string) => {
   return useQuery({
     queryKey: composioKeys.toolkits(search, category),
     queryFn: async (): Promise<ComposioToolkitsResponse> => {
-      const result = await composioApi.getToolkits(search, category);
+      const result = await composioApi.getToolkits(search, category, undefined, 100);
       return result;
     },
     staleTime: 5 * 60 * 1000, 
@@ -49,7 +49,7 @@ export const useComposioToolkitsInfinite = (search?: string, category?: string) 
   return useInfiniteQuery({
     queryKey: ['composio', 'toolkits', 'infinite', search, category],
     queryFn: async ({ pageParam }): Promise<ComposioToolkitsResponse> => {
-      const result = await composioApi.getToolkits(search, category, pageParam);
+      const result = await composioApi.getToolkits(search, category, pageParam, 40);
       return result;
     },
     initialPageParam: undefined as string | undefined,

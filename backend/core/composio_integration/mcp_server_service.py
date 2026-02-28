@@ -1,3 +1,4 @@
+import asyncio
 from typing import Optional, List, Dict, Any
 import secrets
 import string
@@ -73,19 +74,22 @@ class MCPServerService:
                 allowed_tools = []
             
             logger.debug(f"Using MCP server name: {name}")
-            
-            try:
-                response = self.client.mcp.create(
-                    auth_config_ids=auth_config_ids,
-                    name=name,
-                    allowed_tools=allowed_tools
-                )
-            except AttributeError:
-                response = self.client.create_mcp_server(
-                    auth_config_ids=auth_config_ids,
-                    name=name,
-                    allowed_tools=allowed_tools
-                )
+
+            def _create_mcp_server_sync():
+                try:
+                    return self.client.mcp.create(
+                        auth_config_ids=auth_config_ids,
+                        name=name,
+                        allowed_tools=allowed_tools
+                    )
+                except AttributeError:
+                    return self.client.create_mcp_server(
+                        auth_config_ids=auth_config_ids,
+                        name=name,
+                        allowed_tools=allowed_tools
+                    )
+
+            response = await asyncio.to_thread(_create_mcp_server_sync)
 
             commands_obj = getattr(response, 'commands', None)
             
@@ -132,13 +136,16 @@ class MCPServerService:
             if user_ids:
                 request_data["user_ids"] = user_ids
 
-            try:
-                response = self.client.mcp.generate_mcp_url(**request_data)
-            except AttributeError:
+            def _generate_mcp_url_sync():
                 try:
-                    response = self.client.mcp.generate.url(**request_data)
+                    return self.client.mcp.generate_mcp_url(**request_data)
                 except AttributeError:
-                    response = self.client.generate_mcp_url(**request_data)
+                    try:
+                        return self.client.mcp.generate.url(**request_data)
+                    except AttributeError:
+                        return self.client.generate_mcp_url(**request_data)
+
+            response = await asyncio.to_thread(_generate_mcp_url_sync)
             
             mcp_url_response = MCPUrlResponse(
                 mcp_url=response.mcp_url,
@@ -157,10 +164,13 @@ class MCPServerService:
         try:
             logger.debug(f"Fetching MCP server: {mcp_server_id}")
             
-            try:
-                response = self.client.mcp.get(mcp_server_id)
-            except AttributeError:
-                response = self.client.get_mcp_server(mcp_server_id)
+            def _get_mcp_server_sync():
+                try:
+                    return self.client.mcp.get(mcp_server_id)
+                except AttributeError:
+                    return self.client.get_mcp_server(mcp_server_id)
+
+            response = await asyncio.to_thread(_get_mcp_server_sync)
             
             if not response:
                 return None
@@ -194,10 +204,13 @@ class MCPServerService:
         try:
             logger.debug("Listing MCP servers")
             
-            try:
-                response = self.client.mcp.list()
-            except AttributeError:
-                response = self.client.list_mcp_servers()
+            def _list_mcp_servers_sync():
+                try:
+                    return self.client.mcp.list()
+                except AttributeError:
+                    return self.client.list_mcp_servers()
+
+            response = await asyncio.to_thread(_list_mcp_servers_sync)
             
             mcp_servers = []
             items = getattr(response, 'items', [])

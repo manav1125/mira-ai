@@ -1,6 +1,7 @@
 import { backendApi } from "@/lib/api-client";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
+import { extractSandboxIdFromSandboxUrl } from "@/lib/utils/url";
 
 export enum DownloadFormat {
   PDF = 'pdf',
@@ -65,19 +66,20 @@ export async function fetchPresentationMetadata({
   const sanitizedName = sanitizePresentationName(presentationName);
   const errors: string[] = [];
   const candidates: Array<{ url: string; headers?: Record<string, string> }> = [];
+  const effectiveSandboxId = sandboxId || extractSandboxIdFromSandboxUrl(sandboxUrl);
 
   const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || '';
-  if (backendUrl && sandboxId) {
+  if (backendUrl && effectiveSandboxId) {
     try {
       const normalizedBackendUrl = backendUrl.startsWith('http')
         ? backendUrl
         : `${typeof window !== 'undefined' ? window.location.origin : ''}${backendUrl.startsWith('/') ? '' : '/'}${backendUrl}`;
-      const apiUrl = new URL(`${normalizedBackendUrl.replace(/\/+$/, '')}/sandboxes/${sandboxId}/files/content`);
+      const apiUrl = new URL(`${normalizedBackendUrl.replace(/\/+$/, '')}/sandboxes/${effectiveSandboxId}/files/content`);
       apiUrl.searchParams.append('path', `/workspace/presentations/${sanitizedName}/metadata.json`);
       const headers: Record<string, string> = {};
       if (accessToken) {
         headers.Authorization = `Bearer ${accessToken}`;
-        // Include token param as fallback for environments where headers are stripped.
+        // Include token query param for iframe/fetch contexts where auth headers may be stripped.
         apiUrl.searchParams.append('token', accessToken);
       }
       candidates.push({ url: apiUrl.toString(), headers });

@@ -1,3 +1,4 @@
+import asyncio
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
 from core.utils.logger import logger
@@ -80,7 +81,8 @@ class ConnectedAccountService:
             logger.debug(f"Using state.val: {state_val}")
             logger.debug(f"Final state.val for Composio API: {json.dumps(state_val, indent=2)}")
             
-            response = self.client.connected_accounts.create(
+            response = await asyncio.to_thread(
+                self.client.connected_accounts.create,
                 auth_config={
                     "id": auth_config_id
                 },
@@ -135,7 +137,7 @@ class ConnectedAccountService:
         try:
             logger.debug(f"Fetching connected account: {connected_account_id}")
             
-            response = self.client.connected_accounts.get(connected_account_id)
+            response = await asyncio.to_thread(self.client.connected_accounts.get, connected_account_id)
             
             if not response:
                 return None
@@ -199,9 +201,9 @@ class ConnectedAccountService:
             logger.debug(f"Listing connected accounts for auth_config: {auth_config_id}")
             
             if auth_config_id:
-                response = self.client.connected_accounts.list(auth_config_id=auth_config_id)
+                response = await asyncio.to_thread(self.client.connected_accounts.list, auth_config_id=auth_config_id)
             else:
-                response = self.client.connected_accounts.list()
+                response = await asyncio.to_thread(self.client.connected_accounts.list)
             
             connected_accounts = []
             items = getattr(response, 'items', [])

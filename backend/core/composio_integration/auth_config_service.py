@@ -1,3 +1,4 @@
+import asyncio
 from typing import Optional, List, Dict, Any, Union
 from composio_client import Composio
 from core.utils.logger import logger
@@ -57,7 +58,8 @@ class AuthConfigService:
 
                 logger.debug(f"Using custom credentials (keys): {list(credentials.keys())}")
 
-                response = self.client.auth_configs.create(
+                response = await asyncio.to_thread(
+                    self.client.auth_configs.create,
                     toolkit={
                         "slug": toolkit_slug
                     },
@@ -81,7 +83,8 @@ class AuthConfigService:
                 
                 logger.debug(f"Using composio-managed credentials: {credentials}")
                 
-                response = self.client.auth_configs.create(
+                response = await asyncio.to_thread(
+                    self.client.auth_configs.create,
                     toolkit={
                         "slug": toolkit_slug
                     },
@@ -112,7 +115,7 @@ class AuthConfigService:
         try:
             logger.debug(f"Fetching auth config: {auth_config_id}")
             
-            response = self.client.auth_configs.get(auth_config_id)
+            response = await asyncio.to_thread(self.client.auth_configs.get, auth_config_id)
             
             if not response:
                 return None
@@ -134,9 +137,9 @@ class AuthConfigService:
             logger.debug(f"Listing auth configs for toolkit: {toolkit_slug}")
             
             if toolkit_slug:
-                response = self.client.auth_configs.list(toolkit=toolkit_slug)
+                response = await asyncio.to_thread(self.client.auth_configs.list, toolkit=toolkit_slug)
             else:
-                response = self.client.auth_configs.list()
+                response = await asyncio.to_thread(self.client.auth_configs.list)
             
             auth_configs = []
             items = getattr(response, 'items', [])

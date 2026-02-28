@@ -25,22 +25,64 @@ import { PresentationSlidePreview } from '@/components/thread/tool-views/present
 import { usePresentationViewerStore } from '@/stores/presentation-viewer-store';
 import { IframePreview } from '../iframe-preview';
 
-// Helper function to check if a filepath is a presentation attachment
-// Matches paths like: presentations/name/slide_01.html, /workspace/presentations/name/slide_01.html, etc.
-function isPresentationAttachment(filepath: string): boolean {
-    const presentationPattern = /presentations\/([^\/]+)\/slide_(\d+)\.html$/i;
-    return presentationPattern.test(filepath);
+function safeDecode(value: string): string {
+    try {
+        return decodeURIComponent(value);
+    } catch {
+        return value;
+    }
 }
 
-// Helper function to extract presentation name from filepath
+// Extract and normalize a presentation slide path from either:
+// - direct paths: presentations/name/slide_01.html
+// - workspace paths: /workspace/presentations/name/slide_01.html
+// - URLs with path query: .../files/content?path=%2Fworkspace%2Fpresentations%2Fname%2Fslide_01.html
+// - direct preview URLs: https://.../presentations/name/slide_01.html
+function extractPresentationSlidePath(input: string): string | null {
+    if (!input) return null;
+
+    const candidates: string[] = [input];
+
+    if (isUrl(input)) {
+        try {
+            const parsed = new URL(input);
+            const queryPath = parsed.searchParams.get('path');
+            if (queryPath) {
+                candidates.unshift(safeDecode(queryPath));
+            }
+            candidates.push(safeDecode(parsed.pathname || ''));
+        } catch {
+            // Ignore URL parsing failures and continue with raw input.
+        }
+    }
+
+    for (const rawCandidate of candidates) {
+        const candidate = safeDecode(rawCandidate).replace(/\/+$/, '');
+        const match = candidate.match(/(?:^|\/)(?:workspace\/)?presentations\/([^\/?#]+)\/(slide_\d+\.html)$/i);
+        if (match) {
+            return `/workspace/presentations/${match[1]}/${match[2]}`;
+        }
+    }
+
+    return null;
+}
+
+// Helper function to check if a filepath/URL is a presentation attachment.
+function isPresentationAttachment(filepath: string): boolean {
+    return Boolean(extractPresentationSlidePath(filepath));
+}
+
+// Helper function to extract presentation name from filepath/URL
 function extractPresentationName(filepath: string): string | null {
-    const match = filepath.match(/presentations\/([^\/]+)\/slide_\d+\.html$/i);
+    const normalized = extractPresentationSlidePath(filepath) || filepath;
+    const match = normalized.match(/presentations\/([^\/]+)\/slide_\d+\.html$/i);
     return match ? match[1] : null;
 }
 
-// Helper function to extract slide number from filepath
+// Helper function to extract slide number from filepath/URL
 function extractSlideNumber(filepath: string): number | null {
-    const match = filepath.match(/slide_(\d+)\.html$/i);
+    const normalized = extractPresentationSlidePath(filepath) || filepath;
+    const match = normalized.match(/slide_(\d+)\.html$/i);
     if (match) {
         return parseInt(match[1], 10);
     }
@@ -81,17 +123,18 @@ export function FileAttachment({
     hideHeader = false,
 }: FileAttachmentProps) {
     const { openPresentation } = usePresentationViewerStore();
-    const filename = getFilename(filepath);
+    const normalizedFilepath = extractPresentationSlidePath(filepath) || filepath;
+    const filename = getFilename(normalizedFilepath);
     const extension = filename.split('.').pop()?.toLowerCase() || '';
     const fileType = getFileType(filename);
     
     // Determine file characteristics
-    const isImage = isImageFile(filepath);
+    const isImage = isImageFile(normalizedFilepath);
     const isPdf = isPdfExtension(extension);
     const isSpreadsheet = isSpreadsheetExtension(extension) || isCsvExtension(extension);
     const isDocx = isDocxExtension(extension);
-    const isKanvax = isKanvaxFile(filepath);
-    const isPreviewable = isPreviewableFile(filepath);
+    const isKanvax = isKanvaxFile(normalizedFilepath);
+    const isPreviewable = isPreviewableFile(normalizedFilepath);
     const isGridLayout = customStyle?.gridColumn === '1 / -1' || Boolean(customStyle && ('--attachment-height' in customStyle));
     // Images should also show previews, not just previewable files
     const shouldShowPreview = (isPreviewable || isImage) && showPreview && collapsed === false;
@@ -99,13 +142,13 @@ export function FileAttachment({
     // Call all hooks at the top level before any early returns
     const { error, retryCount } = useFileData(
         sandboxId,
-        filepath,
+        normalizedFilepath,
         { enabled: shouldShowPreview, showPreview: shouldShowPreview }
     );
     
     const { data, isLoading } = useFileData(
         sandboxId,
-        filepath,
+        normalizedFilepath,
         { enabled: shouldShowPreview, showPreview: true }
     );
     
@@ -120,14 +163,14 @@ export function FileAttachment({
     
     const handleClick = () => {
         if (onClick) {
-            onClick(filepath);
+            onClick(normalizedFilepath);
         }
     };
     
     // Check for presentation attachments
-    if (isPresentationAttachment(filepath) && project) {
-        const presentationName = extractPresentationName(filepath);
-        const slideNumber = extractSlideNumber(filepath);
+    if (isPresentationAttachment(normalizedFilepath) && project) {
+        const presentationName = extractPresentationName(normalizedFilepath);
+        const slideNumber = extractSlideNumber(normalizedFilepath);
         if (presentationName && project?.sandbox?.sandbox_url) {
             return (
                 <PresentationSlidePreview
@@ -466,10 +509,14 @@ export function FileAttachmentGrid({
     const [currentIndex, setCurrentIndex] = useState(0);
     
     if (!attachments || attachments.length === 0) return null;
-    
+
+    // Normalize presentation URLs into workspace file paths so they render with the
+    // presentation viewer instead of generic URL iframe previews.
+    const normalizedAttachments = attachments.map((att) => extractPresentationSlidePath(att) || att);
+
     // Separate URLs from file paths
-    const urls = attachments.filter(isUrl);
-    const filePaths = attachments.filter(att => !isUrl(att));
+    const urls = normalizedAttachments.filter(isUrl);
+    const filePaths = normalizedAttachments.filter(att => !isUrl(att));
     
     // Always show previews for grid layout
     const shouldCollapse = false;

@@ -1,3 +1,5 @@
+import asyncio
+import time
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 from core.utils.logger import logger
@@ -74,6 +76,9 @@ class ToolsListResponse(BaseModel):
 
 
 class ToolkitService:
+    _toolkits_cache: Dict[str, tuple[float, Dict[str, Any]]] = {}
+    _toolkits_cache_ttl_seconds: int = 60
+
     def __init__(self, api_key: Optional[str] = None):
         self.client = ComposioClient.get_client(api_key)
     
@@ -108,6 +113,18 @@ class ToolkitService:
     async def list_toolkits(self, limit: int = 500, cursor: Optional[str] = None, category: Optional[str] = None) -> Dict[str, Any]:
         try:
             logger.debug(f"Fetching toolkits with limit: {limit}, cursor: {cursor}, category: {category}")
+
+            # Most UI fetches are first-page loads. Cache them briefly to avoid repeated
+            # expensive Composio requests that can slow down the whole app.
+            cacheable = cursor is None
+            cache_key = f"limit={limit}|category={category or ''}|cursor="
+            if cacheable:
+                cached = self.__class__._toolkits_cache.get(cache_key)
+                if cached:
+                    cached_at, cached_result = cached
+                    if time.monotonic() - cached_at < self.__class__._toolkits_cache_ttl_seconds:
+                        return cached_result
+
             params = {
                 "limit": limit,
                 "managed_by": "composio"
@@ -117,8 +134,9 @@ class ToolkitService:
                 params["cursor"] = cursor
             if category:
                 params["category"] = category
-            
-            toolkits_response = self.client.toolkits.list(**params)
+
+            # Composio SDK is sync; run in thread so we don't block the async event loop.
+            toolkits_response = await asyncio.to_thread(self.client.toolkits.list, **params)
             
             if hasattr(toolkits_response, '__dict__'):
                 response_data = toolkits_response.__dict__
@@ -195,6 +213,12 @@ class ToolkitService:
                 "current_page": response_data.get("current_page", 1),
                 "next_cursor": response_data.get("next_cursor")
             }
+
+            if cacheable:
+                # Keep cache size bounded.
+                if len(self.__class__._toolkits_cache) > 30:
+                    self.__class__._toolkits_cache.clear()
+                self.__class__._toolkits_cache[cache_key] = (time.monotonic(), result)
             
             logger.debug(f"Successfully fetched {len(toolkits)} toolkits with OAUTH2 in both auth schemes" + (f" for category {category}" if category else ""))
             return result
@@ -212,7 +236,7 @@ class ToolkitService:
                     return toolkit
                     
             try:
-                toolkit_response = self.client.toolkits.retrieve(slug)
+                toolkit_response = await asyncio.to_thread(self.client.toolkits.retrieve, slug)
 
                 if hasattr(toolkit_response, 'model_dump'):
                     toolkit_dict = toolkit_response.model_dump()
@@ -289,8 +313,6 @@ class ToolkitService:
         Uses asyncio.to_thread for the sync Composio SDK call to enable
         true parallel execution when called via asyncio.gather.
         """
-        import asyncio
-        
         try:
             from core.services import redis
 
@@ -337,7 +359,7 @@ class ToolkitService:
     async def get_detailed_toolkit_info(self, toolkit_slug: str) -> Optional[DetailedToolkitInfo]:
         try:
             logger.debug(f"Fetching detailed toolkit info for: {toolkit_slug}")
-            toolkit_response = self.client.toolkits.retrieve(toolkit_slug)
+            toolkit_response = await asyncio.to_thread(self.client.toolkits.retrieve, toolkit_slug)
             
             if hasattr(toolkit_response, 'model_dump'):
                 toolkit_dict = toolkit_response.model_dump()
@@ -488,8 +510,9 @@ class ToolkitService:
             
             if cursor:
                 params["cursor"] = cursor
-            
-            tools_response = self.client.tools.list(**params)
+
+            # Composio SDK is sync; run in thread so this route does not block other API requests.
+            tools_response = await asyncio.to_thread(self.client.tools.list, **params)
             
             if hasattr(tools_response, '__dict__'):
                 response_data = tools_response.__dict__

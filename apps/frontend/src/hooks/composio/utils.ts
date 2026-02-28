@@ -220,7 +220,7 @@ export const composioApi = {
     return result.data!;
   },
 
-  async getToolkits(search?: string, category?: string, cursor?: string): Promise<ComposioToolkitsResponse> {
+  async getToolkits(search?: string, category?: string, cursor?: string, limit: number = 100): Promise<ComposioToolkitsResponse> {
     const params = new URLSearchParams();
     
     if (search) {
@@ -233,6 +233,10 @@ export const composioApi = {
     
     if (cursor) {
       params.append('cursor', cursor);
+    }
+
+    if (limit > 0) {
+      params.append('limit', String(limit));
     }
     
     const result = await backendApi.get<ComposioToolkitsResponse>(

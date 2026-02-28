@@ -12,6 +12,7 @@ import {
   SkipBack,
   SkipForward,
   Edit,
+  AlertTriangle,
 } from 'lucide-react';
 import { KortixLoader } from '@/components/ui/kortix-loader';
 import {
@@ -91,7 +92,7 @@ export function FullScreenPresentationViewer({
   const totalSlides = slides.length;
 
   // Load metadata with retry logic
-  const loadMetadata = useCallback(async (retryCount = 0, maxRetries = Infinity) => {
+  const loadMetadata = useCallback(async (retryCount = 0, maxRetries = 8) => {
     // Don't load if we already successfully loaded metadata
     if (hasLoadedRef.current) {
       return;
@@ -128,6 +129,7 @@ export function FullScreenPresentationViewer({
       return; // Success, exit early
     } catch (err) {
       console.error(`Error loading metadata (attempt ${retryCount + 1}):`, err);
+      const errorMessage = err instanceof Error ? err.message : String(err);
 
       // Calculate delay with exponential backoff, capped at 10 seconds
       // For early attempts, use shorter delays. After 5 attempts, use consistent 5 second intervals
@@ -135,14 +137,19 @@ export function FullScreenPresentationViewer({
         ? Math.min(1000 * Math.pow(2, retryCount), 10000) // Exponential backoff for first 5 attempts
         : 5000; // Consistent 5 second intervals after that
 
+      if (retryCount >= maxRetries) {
+        setIsLoading(false);
+        setError(errorMessage);
+        return;
+      }
+
       console.log(`Retrying in ${delay}ms... (attempt ${retryCount + 1})`);
 
-      // Keep retrying indefinitely - don't set error state
       retryTimeoutRef.current = setTimeout(() => {
         loadMetadata(retryCount + 1, maxRetries);
       }, delay);
 
-      return; // Keep loading state, don't set error
+      return;
     }
   }, [presentationName, sandboxUrl, sandboxId, session?.access_token]);
 
@@ -166,7 +173,7 @@ export function FullScreenPresentationViewer({
 
       // Only start loading if we have the required data
       if (presentationName && sandboxUrl) {
-        loadMetadata();
+        loadMetadata(0, 8);
       } else {
         setIsLoading(false);
       }
@@ -198,7 +205,7 @@ export function FullScreenPresentationViewer({
 
       // Add a small delay to allow the editor to save changes
       timeoutId = setTimeout(() => {
-        loadMetadata();
+        loadMetadata(0, 8);
       }, 300);
     }
 
@@ -534,7 +541,16 @@ export function FullScreenPresentationViewer({
 
       {/* Main Content Area */}
       <div className="flex-1 flex items-center justify-center bg-zinc-100 dark:bg-zinc-900 p-2 min-h-0">
-        {isLoading || !currentSlideData ? (
+        {error ? (
+          <div className="text-center max-w-2xl px-6">
+            <AlertTriangle className="h-10 w-10 mx-auto mb-3 text-zinc-500 dark:text-zinc-400" />
+            <p className="text-zinc-700 dark:text-zinc-300 mb-3">Unable to load presentation</p>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400 break-words mb-4">{error}</p>
+            <Button variant="outline" size="sm" onClick={() => loadMetadata(0, 8)}>
+              Retry
+            </Button>
+          </div>
+        ) : isLoading ? (
           <div className="text-center">
             <KortixLoader size="large" className="mx-auto mb-4" />
             <p className="text-zinc-700 dark:text-zinc-300">
