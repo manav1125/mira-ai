@@ -11,6 +11,7 @@ import openai
 import asyncio
 import re
 from typing import Optional
+from datetime import datetime
 
 @tool_metadata(
     display_name="Write & Edit",
@@ -82,6 +83,7 @@ class SandboxFilesTool(SandboxToolsBase):
     def __init__(self, project_id: str, thread_manager: ThreadManager):
         super().__init__(project_id, thread_manager)
         self.SNIPPET_LINES = 4  # Number of context lines to show around edits
+        self._presentation_slide_pattern = re.compile(r"^presentations/([^/]+)/slide_(\d+)\.html$", re.IGNORECASE)
 
     def clean_path(self, path: str) -> str:
         """Clean and normalize a path to be relative to /workspace"""
@@ -103,6 +105,38 @@ class SandboxFilesTool(SandboxToolsBase):
             return True
         except Exception:
             return False
+
+    async def _touch_presentation_metadata_if_slide(self, file_path: str) -> None:
+        """
+        If the changed file is a presentation slide, bump metadata.updated_at so
+        frontend viewers can refresh cached iframe previews reliably.
+        """
+        try:
+            cleaned = self.clean_path(file_path)
+            match = self._presentation_slide_pattern.match(cleaned)
+            if not match:
+                return
+
+            presentation_folder = match.group(1)
+            slide_number = str(int(match.group(2)))
+            presentation_dir = f"{self.workspace_path}/presentations/{presentation_folder}"
+            metadata_path = f"{presentation_dir}/metadata.json"
+
+            if not await self._file_exists(metadata_path):
+                return
+
+            raw = await self.sandbox.fs.download_file(metadata_path)
+            metadata = json.loads(raw.decode())
+            now_iso = datetime.now().isoformat()
+            metadata["updated_at"] = now_iso
+
+            slides = metadata.get("slides")
+            if isinstance(slides, dict) and slide_number in slides and isinstance(slides[slide_number], dict):
+                slides[slide_number]["updated_at"] = now_iso
+
+            await self.sandbox.fs.upload_file(json.dumps(metadata, indent=2).encode(), metadata_path)
+        except Exception as e:
+            logger.warning(f"Failed to touch presentation metadata for '{file_path}': {str(e)}")
 
     async def get_workspace_state(self) -> dict:
         """Get the current workspace state by reading all files"""
@@ -200,6 +234,7 @@ Usage:
             # Write the file content
             await self.sandbox.fs.upload_file(file_contents.encode(), full_path)
             await self.sandbox.fs.set_file_permissions(full_path, permissions)
+            await self._touch_presentation_metadata_if_slide(file_path)
             
             message = f"File '{file_path}' created successfully."
             
@@ -280,6 +315,7 @@ Usage:
 
             new_content = content.replace(old_str, new_str)
             await self.sandbox.fs.upload_file(new_content.encode(), full_path)
+            await self._touch_presentation_metadata_if_slide(file_path)
             
             return ToolResult(success=True, output=json.dumps({
                 "message": f"Replacement successful.",
@@ -329,6 +365,7 @@ Usage:
 
             await self.sandbox.fs.upload_file(file_contents.encode(), full_path)
             await self.sandbox.fs.set_file_permissions(full_path, permissions)
+            await self._touch_presentation_metadata_if_slide(file_path)
             
             message = f"File '{file_path}' completely rewritten successfully."
             
@@ -579,6 +616,7 @@ Usage:
                 }))
 
             await self.sandbox.fs.upload_file(new_content.encode(), full_path)
+            await self._touch_presentation_metadata_if_slide(target_file)
             
             return ToolResult(success=True, output=json.dumps({
                 "message": f"File '{target_file}' edited successfully.",
