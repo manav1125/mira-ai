@@ -24,6 +24,12 @@ if TYPE_CHECKING:
     usage_guide="""
 ### PRESENTATION CREATION WORKFLOW
 
+**MANDATORY QUALITY GATES (DO NOT SKIP):**
+- If you call `load_template_design` with `presentation_name`, you MUST then call `full_file_rewrite` on the copied slide files before completing.
+- Never finish right after template copy; template copy is setup only, not final output.
+- Every custom slide must include a clear visual structure (styled layout, chart/table/image/iconography), not plain text-only HTML.
+- If using `../images/...` paths, ensure those files actually exist first. If they do not, use direct HTTPS image URLs.
+
 **🚨 CRITICAL: This tool provides the create_slide function for presentations!**
 - **ALWAYS** use create_slide when creating presentation slides
 - **NEVER** use generic create_file to create presentation slides
@@ -326,6 +332,8 @@ class SandboxPresentationTool(SandboxToolsBase):
         self.presentations_dir = "presentations"
         # Path to built-in templates (on the backend filesystem, not in sandbox)
         self.templates_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates", "presentations")
+        self._metadata_locks: Dict[str, asyncio.Lock] = {}
+        self._metadata_locks_guard = asyncio.Lock()
 
 
     async def _ensure_presentations_dir(self):
@@ -350,6 +358,138 @@ class SandboxPresentationTool(SandboxToolsBase):
         """Convert presentation name to safe filename"""
         return "".join(c for c in name if c.isalnum() or c in "-_").lower()
 
+    async def _get_metadata_lock(self, presentation_path: str) -> asyncio.Lock:
+        """Get/create a per-presentation lock to avoid metadata races across parallel slide writes."""
+        async with self._metadata_locks_guard:
+            lock = self._metadata_locks.get(presentation_path)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._metadata_locks[presentation_path] = lock
+            return lock
+
+    def _is_plain_slide_content(self, slide_content: str) -> bool:
+        """
+        Detect very plain content (just headings/paragraphs/lists) so we can auto-apply
+        a visual baseline instead of rendering bare text-only slides.
+        """
+        lowered = slide_content.lower()
+        if "style=" in lowered or "<style" in lowered:
+            return False
+
+        visual_markers = ("<img", "<svg", "<canvas", "<video", "<iframe", "<table", "<chart")
+        if any(marker in lowered for marker in visual_markers):
+            return False
+
+        tags = re.findall(r"<\s*/?\s*([a-z0-9-]+)", lowered)
+        if not tags:
+            return True
+
+        plain_tags = {"h1", "h2", "h3", "h4", "h5", "h6", "p", "ul", "ol", "li", "strong", "em", "b", "i", "a", "span", "br", "small"}
+        return all(tag in plain_tags for tag in tags)
+
+    def _apply_visual_baseline(self, slide_content: str, slide_title: str) -> str:
+        """Wrap plain content in a branded visual shell so slides are never text-only placeholders."""
+        safe_title = (slide_title or "Slide").replace("<", "").replace(">", "")
+        return f"""
+<style>
+  .kortix-visual-shell {{
+    width: 1920px;
+    height: 1080px;
+    box-sizing: border-box;
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 48%, #334155 100%);
+    color: #f8fafc;
+    padding: 80px;
+  }}
+  .kortix-visual-shell .decor-orb {{
+    position: absolute;
+    border-radius: 9999px;
+    filter: blur(4px);
+    opacity: 0.28;
+  }}
+  .kortix-visual-shell .decor-orb.one {{
+    width: 420px;
+    height: 420px;
+    top: -140px;
+    right: -110px;
+    background: radial-gradient(circle at 30% 30%, #93c5fd, #3b82f6 70%);
+  }}
+  .kortix-visual-shell .decor-orb.two {{
+    width: 340px;
+    height: 340px;
+    left: -120px;
+    bottom: -90px;
+    background: radial-gradient(circle at 30% 30%, #67e8f9, #06b6d4 70%);
+  }}
+  .kortix-visual-shell .content-card {{
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    border-radius: 28px;
+    border: 1px solid rgba(148, 163, 184, 0.32);
+    background: linear-gradient(160deg, rgba(15, 23, 42, 0.72), rgba(30, 41, 59, 0.72));
+    backdrop-filter: blur(6px);
+    padding: 56px 64px;
+  }}
+  .kortix-visual-shell .eyebrow {{
+    font-size: 18px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #93c5fd;
+    margin: 0 0 20px 0;
+    font-weight: 700;
+  }}
+  .kortix-visual-shell .auto-content h1,
+  .kortix-visual-shell .auto-content h2 {{
+    margin: 0 0 18px 0;
+    font-size: 64px;
+    line-height: 1.1;
+    color: #f8fafc;
+  }}
+  .kortix-visual-shell .auto-content h3,
+  .kortix-visual-shell .auto-content h4 {{
+    margin: 0 0 14px 0;
+    font-size: 40px;
+    line-height: 1.2;
+    color: #e2e8f0;
+  }}
+  .kortix-visual-shell .auto-content p,
+  .kortix-visual-shell .auto-content li {{
+    font-size: 32px;
+    line-height: 1.45;
+    color: #cbd5e1;
+  }}
+  .kortix-visual-shell .auto-content ul,
+  .kortix-visual-shell .auto-content ol {{
+    margin: 14px 0 0 24px;
+    padding-left: 24px;
+  }}
+  .kortix-visual-shell .accent-line {{
+    position: absolute;
+    left: 64px;
+    right: 64px;
+    bottom: 44px;
+    height: 8px;
+    border-radius: 9999px;
+    background: linear-gradient(90deg, #22d3ee, #38bdf8, #a78bfa);
+    opacity: 0.8;
+  }}
+</style>
+<div class="kortix-visual-shell">
+  <div class="decor-orb one"></div>
+  <div class="decor-orb two"></div>
+  <div class="content-card">
+    <p class="eyebrow">{safe_title}</p>
+    <div class="auto-content">
+      {slide_content}
+    </div>
+    <div class="accent-line"></div>
+  </div>
+</div>
+"""
 
     def _create_slide_html(self, slide_content: str, slide_number: int, total_slides: int, presentation_title: str) -> str:
         """Create a basic HTML document with Google Fonts"""
@@ -697,6 +837,8 @@ class SandboxPresentationTool(SandboxToolsBase):
                 response_data["presentation_path"] = f"{self.presentations_dir}/{safe_name}"
                 response_data["presentation_name"] = presentation_name.lower()
                 response_data["copied_to_workspace"] = True
+                response_data["requires_follow_up_edit"] = True
+                response_data["required_next_tool"] = "full_file_rewrite"
                 response_data["note"] = f"Template copied to /workspace/{self.presentations_dir}/{safe_name}/. **CRITICAL**: Use full_file_rewrite to edit slides. ONLY change text content - preserve ALL CSS, styling, colors, fonts, and HTML structure 100% exactly. The template's visual design must remain identical. This template provides ALL slides and extracted design patterns in one response."
                 response_data["usage_instructions"] = {
                     "purpose": "TEMPLATE COPIED TO WORKSPACE - Edit ONLY the content, preserve ALL design/styling",
@@ -914,39 +1056,48 @@ class SandboxPresentationTool(SandboxToolsBase):
             # Ensure presentation directory exists
             safe_name, presentation_path = await self._ensure_presentation_dir(presentation_name)
             
-            # Load or create metadata
-            metadata = await self._load_presentation_metadata(presentation_path)
-            metadata["presentation_name"] = presentation_name
-            if presentation_title != "Presentation":  # Only update if explicitly provided
-                metadata["title"] = presentation_title
-            
-            # Create slide HTML
-            slide_html = self._create_slide_html(
-                slide_content=content,
-                slide_number=slide_number,
-                total_slides=0,  # Will be updated when regenerating navigation
-                presentation_title=presentation_title
-            )
-            
-            # Save slide file
-            slide_filename = f"slide_{slide_number:02d}.html"
-            slide_path = f"{presentation_path}/{slide_filename}"
-            await self.sandbox.fs.upload_file(slide_html.encode(), slide_path)
-            
-            # Update metadata
-            if "slides" not in metadata:
-                metadata["slides"] = {}
-            
-            metadata["slides"][str(slide_number)] = {
-                "title": slide_title,
-                "filename": slide_filename,
-                "file_path": f"{self.presentations_dir}/{safe_name}/{slide_filename}",
-                "preview_url": f"/workspace/{self.presentations_dir}/{safe_name}/{slide_filename}",
-                "created_at": datetime.now().isoformat()
-            }
-            
-            # Save updated metadata
-            await self._save_presentation_metadata(presentation_path, metadata)
+            # Auto-apply a visual shell when the model returns plain, text-only slide fragments.
+            final_content = content
+            if self._is_plain_slide_content(content):
+                final_content = self._apply_visual_baseline(content, slide_title)
+
+            # Parallel create_slide calls can race and overwrite metadata.
+            # Serialize write operations per presentation to keep all slide entries.
+            presentation_lock = await self._get_metadata_lock(presentation_path)
+            async with presentation_lock:
+                # Load latest metadata inside lock
+                metadata = await self._load_presentation_metadata(presentation_path)
+                metadata["presentation_name"] = presentation_name
+                if presentation_title != "Presentation":  # Only update if explicitly provided
+                    metadata["title"] = presentation_title
+
+                # Create slide HTML
+                slide_html = self._create_slide_html(
+                    slide_content=final_content,
+                    slide_number=slide_number,
+                    total_slides=0,  # Will be updated when regenerating navigation
+                    presentation_title=presentation_title
+                )
+
+                # Save slide file
+                slide_filename = f"slide_{slide_number:02d}.html"
+                slide_path = f"{presentation_path}/{slide_filename}"
+                await self.sandbox.fs.upload_file(slide_html.encode(), slide_path)
+
+                # Update metadata
+                if "slides" not in metadata:
+                    metadata["slides"] = {}
+
+                metadata["slides"][str(slide_number)] = {
+                    "title": slide_title,
+                    "filename": slide_filename,
+                    "file_path": f"{self.presentations_dir}/{safe_name}/{slide_filename}",
+                    "preview_url": f"/workspace/{self.presentations_dir}/{safe_name}/{slide_filename}",
+                    "created_at": datetime.now().isoformat()
+                }
+
+                # Save updated metadata
+                await self._save_presentation_metadata(presentation_path, metadata)
             
             response_data = {
                 "message": f"Slide {slide_number} '{slide_title}' created/updated successfully",
