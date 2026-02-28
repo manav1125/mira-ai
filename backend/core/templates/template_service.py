@@ -196,7 +196,7 @@ class TemplateService:
             raise TemplateAccessDeniedError("You can only create templates from your own agents")
         
         if self._is_suna_default_agent(agent):
-            raise SunaDefaultAgentTemplateError("Cannot create template from Suna default agent")
+            raise SunaDefaultAgentTemplateError("Cannot create template from Mira default agent")
         
         version_config = await self._get_agent_version_config(agent)
         if not version_config:

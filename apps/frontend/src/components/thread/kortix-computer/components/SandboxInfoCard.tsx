@@ -152,7 +152,7 @@ export const SandboxInfoCard = memo(function SandboxInfoCard({
             <KortixLogo size={32} />
           </div>
           <div className="flex flex-col items-center justify-center">
-            <h3 className="text-foreground font-semibold text-lg text-center">Kortix Computer</h3>
+            <h3 className="text-foreground font-semibold text-lg text-center">Mira Computer</h3>
             <div className="flex items-center justify-center gap-2 mt-0.5">
               <StatusIndicator status={status} />
               <span className={cn("text-xs font-medium", getStatusColor(status))}>

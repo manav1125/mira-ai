@@ -59,8 +59,8 @@ async def update_agent(
                 restrictions.get('name_editable') == False):
                 logger.error(f"User {user_id} attempted to modify restricted name of Suna agent {agent_id}")
                 raise HTTPException(
-                    status_code=403, 
-                    detail="Suna's name cannot be modified. This restriction is managed centrally."
+                    status_code=403,
+                    detail="Mira's name cannot be modified. This restriction is managed centrally."
                 )
             
             
@@ -68,24 +68,24 @@ async def update_agent(
                 restrictions.get('system_prompt_editable') == False):
                 logger.error(f"User {user_id} attempted to modify restricted system prompt of Suna agent {agent_id}")
                 raise HTTPException(
-                    status_code=403, 
-                    detail="Suna's system prompt cannot be modified. This is managed centrally to ensure optimal performance."
+                    status_code=403,
+                    detail="Mira's system prompt cannot be modified. This is managed centrally to ensure optimal performance."
                 )
             
             if (agent_data.agentpress_tools is not None and 
                 restrictions.get('tools_editable') == False):
                 logger.error(f"User {user_id} attempted to modify restricted tools of Suna agent {agent_id}")
                 raise HTTPException(
-                    status_code=403, 
-                    detail="Suna's default tools cannot be modified. These tools are optimized for Suna's capabilities."
+                    status_code=403,
+                    detail="Mira's default tools cannot be modified. These tools are optimized for Mira's capabilities."
                 )
             
             if ((agent_data.configured_mcps is not None or agent_data.custom_mcps is not None) and 
                 restrictions.get('mcps_editable') == False):
                 logger.error(f"User {user_id} attempted to modify restricted MCPs of Suna agent {agent_id}")
                 raise HTTPException(
-                    status_code=403, 
-                    detail="Suna's integrations cannot be modified."
+                    status_code=403,
+                    detail="Mira's integrations cannot be modified."
                 )
             
             logger.debug(f"Suna agent update validation passed for agent {agent_id} by user {user_id}")
@@ -407,7 +407,7 @@ async def delete_agent(agent_id: str, user_id: str = Depends(verify_and_get_user
             raise HTTPException(status_code=400, detail="Cannot delete default agent")
         
         if agent.get('metadata', {}).get('is_suna_default', False):
-            raise HTTPException(status_code=400, detail="Cannot delete Suna default agent")
+            raise HTTPException(status_code=400, detail="Cannot delete Mira default agent")
         
         # Clean up triggers before deleting agent
         try:

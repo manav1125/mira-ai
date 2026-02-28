@@ -190,7 +190,7 @@ function PricingCard({
     const itemData: PlanItemData = {
       item_id: `${tier.tierKey}_${effectiveBillingPeriod}`,
       item_name: `${tier.name} ${billingLabel}`,
-      item_brand: 'Kortix AI',
+      item_brand: 'VentureVerse AI',
       item_category: 'Plans',
       item_list_id: 'plans_listing',
       item_list_name: 'Plans Listing',
@@ -660,7 +660,7 @@ function PricingCard({
                 }
               }
 
-              // Handle Kortix Advanced mode
+              // Handle VentureVerse Advanced mode
               if (feature.includes('Advanced mode') || feature.includes('ADVANCED Mode')) {
                 const description = feature.split(' - ')[1];
                 return (
@@ -1078,7 +1078,7 @@ export function PricingSection({
     return {
       item_id: `${tier.tierKey}_${period}`,
       item_name: `${tier.name} ${billingLabel}`,
-      item_brand: 'Kortix AI',
+      item_brand: 'VentureVerse AI',
       item_category: 'Plans',
       item_list_id: 'plans_listing',
       item_list_name: 'Plans Listing',

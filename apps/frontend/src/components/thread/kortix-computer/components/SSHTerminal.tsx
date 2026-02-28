@@ -267,7 +267,7 @@ export const SSHTerminal = memo(function SSHTerminal({ sandboxId, className }: S
     fitAddonRef.current = fitAddon;
 
     term.writeln('\x1b[38;5;141m┌──────────────────────────────────────────┐\x1b[0m');
-    term.writeln('\x1b[38;5;141m│\x1b[0m   \x1b[1;38;5;183m◉\x1b[0m \x1b[1;37mKortix\x1b[0m \x1b[38;5;245m• Terminal\x1b[0m               \x1b[38;5;141m│\x1b[0m');
+    term.writeln('\x1b[38;5;141m│\x1b[0m   \x1b[1;38;5;183m◉\x1b[0m \x1b[1;37mMira\x1b[0m \x1b[38;5;245m• Terminal\x1b[0m                 \x1b[38;5;141m│\x1b[0m');
     term.writeln('\x1b[38;5;141m└──────────────────────────────────────────┘\x1b[0m');
     term.writeln('');
 

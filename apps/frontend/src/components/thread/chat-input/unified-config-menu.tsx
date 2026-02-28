@@ -117,7 +117,7 @@ const LoggedInMenu: React.FC<UnifiedConfigMenuProps> = memo(function LoggedInMen
 
     const placeholderSunaAgent = useMemo(() => ({
         agent_id: undefined,
-        name: 'Kortix',
+        name: 'Mira',
         metadata: { is_suna_default: true }
     }), []);
 
@@ -185,7 +185,7 @@ const LoggedInMenu: React.FC<UnifiedConfigMenuProps> = memo(function LoggedInMen
 
     const renderAgentIcon = useCallback((agent: any, size: number = 32) => {
         if (!agent && (isLoading || sunaAgent)) {
-            return <AgentAvatar isSunaDefault={true} agentName="Kortix" size={size} className="flex-shrink-0 !border-0" />;
+            return <AgentAvatar isSunaDefault={true} agentName="Mira" size={size} className="flex-shrink-0 !border-0" />;
         }
         return <AgentAvatar agent={agent} agentId={agent?.agent_id} size={size} className="flex-shrink-0 !border-0" />;
     }, [isLoading, sunaAgent]);
@@ -379,8 +379,8 @@ const LoggedInMenu: React.FC<UnifiedConfigMenuProps> = memo(function LoggedInMen
         ) : null
     ), [onAgentSelect, selectedAgentId, displayAgent?.agent_id, handleQuickAction]);
 
-    // Check if current agent is Kortix (used in multiple places)
-    const isKortixAgent = !displayAgent?.name || displayAgent?.name === 'Kortix';
+    // Check if current agent is Mira (used in multiple places)
+    const isKortixAgent = !displayAgent?.name || displayAgent?.name === 'Mira';
 
     // Mobile Sheet Content
     const MobileSheetContent = useCallback(() => {
@@ -454,7 +454,7 @@ const LoggedInMenu: React.FC<UnifiedConfigMenuProps> = memo(function LoggedInMen
                                     </div>
                                 )}
                                 <span className="flex-1 truncate text-base font-medium text-left min-w-0">
-                                    {isKortixAgent ? 'Kortix' : displayAgent?.name}
+                                    {isKortixAgent ? 'Mira' : displayAgent?.name}
                                 </span>
                                 <ChevronDown className="h-5 w-5 text-muted-foreground rotate-[-90deg] flex-shrink-0" />
                             </button>
@@ -485,7 +485,7 @@ const LoggedInMenu: React.FC<UnifiedConfigMenuProps> = memo(function LoggedInMen
                 <div className="flex items-center gap-2 min-w-0 max-w-[180px]">
                     {renderAgentIcon(isLoading && !displayAgent ? placeholderSunaAgent : displayAgent, 24)}
                     <span className="truncate text-sm font-medium">
-                        {isKortixAgent ? 'Kortix' : displayAgent?.name}
+                        {isKortixAgent ? 'Mira' : displayAgent?.name}
                     </span>
                     <ChevronDown size={12} className="opacity-60 flex-shrink-0" />
                 </div>
@@ -557,7 +557,7 @@ const LoggedInMenu: React.FC<UnifiedConfigMenuProps> = memo(function LoggedInMen
                                                     <div className="flex items-center gap-3">
                                                         {renderAgentIcon(isLoading && !displayAgent ? placeholderSunaAgent : displayAgent)}
                                                         <span className="flex-1 truncate font-medium text-left">
-                                                            {isKortixAgent ? 'Kortix' : displayAgent?.name}
+                                                            {isKortixAgent ? 'Mira' : displayAgent?.name}
                                                         </span>
                                                     </div>
                                                 </DropdownMenuSubTrigger>
@@ -648,7 +648,7 @@ const GuestMenu: React.FC<UnifiedConfigMenuProps> = memo(function GuestMenu() {
                             <div className="flex-shrink-0">
                                 <KortixLogo size={20} />
                             </div>
-                            <span className="truncate text-sm font-medium">Kortix</span>
+                            <span className="truncate text-sm font-medium">Mira</span>
                             <ChevronDown size={12} className="opacity-60 flex-shrink-0" />
                         </div>
                     </Button>

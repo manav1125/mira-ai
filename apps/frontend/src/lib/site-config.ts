@@ -15,12 +15,12 @@ export const siteConfig = {
   },
   hero: {
     description:
-      'Kortix – open-source platform to build, manage and train your AI Workforce.',
+      'VentureVerse – open-source platform to build, manage and train your AI Workforce.',
   },
   cloudPricingItems: pricingTiers,
   footerLinks: [
     {
-      title: 'Kortix',
+      title: 'VentureVerse',
       links: [
         { id: 1, title: 'About', url: '/about' },
         { id: 2, title: 'Careers', url: '/careers' },

@@ -189,7 +189,7 @@ export function KortixAppBanners(props: KortixAppBannersProps) {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-foreground dark:text-white text-sm font-semibold truncate">
-                    Get Kortix Apps
+                    Get VentureVerse Apps
                   </p>
                   <p className="text-muted-foreground dark:text-white/60 text-xs">
                     Mobile & Desktop
@@ -240,7 +240,7 @@ export function KortixAppBanners(props: KortixAppBannersProps) {
                     {/* Content area */}
                     <div className="p-4 bg-muted/50 dark:bg-[#161618]">
                       <h3 className="text-foreground dark:text-white text-sm font-semibold mb-1">
-                        Kortix for Mobile is here
+                        VentureVerse for Mobile is here
                       </h3>
                       <p className="text-muted-foreground dark:text-white/60 text-xs leading-relaxed mb-3">
                         Scan QR or tap to download
@@ -326,10 +326,10 @@ export function KortixAppBanners(props: KortixAppBannersProps) {
                     {/* Content area */}
                     <div className="p-4 bg-muted/50 dark:bg-[#161618]">
                       <h3 className="text-foreground dark:text-white text-sm font-semibold mb-1">
-                        Kortix for Desktop is here
+                        VentureVerse for Desktop is here
                       </h3>
                       <p className="text-muted-foreground dark:text-white/60 text-xs leading-relaxed mb-3">
-                        Hand it off to Kortix. From anywhere on your {desktopPlatform === 'mac' ? 'Mac' : 'Desktop'}. Download now.
+                        Hand it off to VentureVerse. From anywhere on your {desktopPlatform === 'mac' ? 'Mac' : 'Desktop'}. Download now.
                       </p>
 
                       {/* Desktop download badge */}

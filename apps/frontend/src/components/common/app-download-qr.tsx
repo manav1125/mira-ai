@@ -2,7 +2,7 @@
 
 import { cn } from '@/lib/utils';
 
-// Kortix symbol SVG
+// VentureVerse symbol SVG
 function KortixSymbol({ size = 24, className }: { size?: number; className?: string }) {
   return (
     <svg 
@@ -27,7 +27,7 @@ export interface AppDownloadQRProps {
   size?: number;
   /** Additional class names for the container */
   className?: string;
-  /** Whether to show the Kortix logo in the center */
+  /** Whether to show the VentureVerse logo in the center */
   showLogo?: boolean;
   /** Size of the center logo */
   logoSize?: number;
@@ -49,7 +49,7 @@ export function AppDownloadQR({
     <div className={cn("relative bg-white rounded-2xl p-4 shadow-lg", className)}>
       <img 
         src={qrUrl}
-        alt="Scan to download Kortix - redirects to App Store or Google Play based on your device"
+        alt="Scan to download VentureVerse - redirects to App Store or Google Play based on your device"
         width={size}
         height={size}
         className="block"

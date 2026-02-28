@@ -15,7 +15,7 @@ export function WordmarkFooter() {
                             <div className="md:hidden absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" style={{ width: '280px', height: '280px' }}>
                                 <Image
                                     src="/kortix-symbol.svg"
-                                    alt="Kortix"
+                                    alt="VentureVerse"
                                     fill
                                     className="object-contain invert dark:invert-0 opacity-15"
                                     priority
@@ -44,7 +44,7 @@ export function WordmarkFooter() {
                             {/* Desktop: Full wordmark */}
                             <Image
                                 src="/wordmark.svg"
-                                alt="Kortix"
+                                alt="VentureVerse"
                                 fill
                                 className="object-contain dark:invert hidden md:block"
                                 priority
@@ -77,7 +77,7 @@ export function WordmarkFooter() {
                         <div className="relative w-full h-full md:hidden">
                             <Image
                                 src="/kortix-symbol.svg"
-                                alt="Kortix"
+                                alt="VentureVerse"
                                 fill
                                 className="object-contain"
                                 priority
@@ -85,7 +85,7 @@ export function WordmarkFooter() {
                         </div>
                         <Image
                             src="/wordmark.svg"
-                            alt="Kortix"
+                            alt="VentureVerse"
                             fill
                             className="object-contain hidden md:block"
                             priority

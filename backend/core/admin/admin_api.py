@@ -415,13 +415,13 @@ async def admin_install_suna_for_user(
     if agent_id:
         return {
             "success": True,
-            "message": f"Successfully installed Suna agent for user {account_id}",
+            "message": f"Successfully installed Mira agent for user {account_id}",
             "agent_id": agent_id
         }
     else:
         raise HTTPException(
             status_code=500, 
-            detail=f"Failed to install Suna agent for user {account_id}"
+            detail=f"Failed to install Mira agent for user {account_id}"
         )
 
 @router.get("/env-vars")
@@ -461,4 +461,3 @@ def save_env_vars(request: Dict[str, str]) -> Dict[str, str]:
     except Exception as e:
         logger.error(f"Failed to save env variables: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to save env variables: {e}")
-

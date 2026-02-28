@@ -121,8 +121,8 @@ export default function SubscriptionRequiredPage() {
           </div>
           <p className="text-md text-muted-foreground max-w-2xl mx-auto">
             {isTrialExpired
-              ? 'Your 7-day free trial has ended. Choose a plan to continue using Kortix AI.'
-              : 'A subscription is required to use Kortix. Choose the plan that works best for you.'}
+              ? 'Your 7-day free trial has ended. Choose a plan to continue using VentureVerse AI.'
+              : 'A subscription is required to use VentureVerse. Choose the plan that works best for you.'}
           </p>
         </div>
         <Suspense fallback={

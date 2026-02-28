@@ -1,7 +1,7 @@
 {
-  "name": "Kortix the Super Mega Giga Worker",
-  "short_name": "Kortix",
-  "description": "Kortix the Super Mega Giga Worker – A generalist AI Worker that is able to autonomously tackle complex tasks, browse the web, write and execute code, manage files, conduct research, automate workflows, and accomplish real-world objectives through natural conversation.",
+  "name": "VentureVerse: Autonomous AI Worker",
+  "short_name": "VentureVerse",
+  "description": "VentureVerse is a generalist AI worker that autonomously handles complex tasks, browses the web, writes and executes code, manages files, conducts research, automates workflows, and accomplishes real-world objectives through natural conversation.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#000000",

@@ -308,7 +308,7 @@ class Configuration:
     OPENAI_COMPATIBLE_API_KEY: Optional[str] = None
     OPENAI_COMPATIBLE_API_BASE: Optional[str] = None
     OR_SITE_URL: Optional[str] = "https://www.kortix.com"
-    OR_APP_NAME: Optional[str] = "Kortix.com"
+    OR_APP_NAME: Optional[str] = "VentureVerse.com"
     
     # Frontend URL configuration
     FRONTEND_URL_ENV: Optional[str] = None
@@ -527,7 +527,7 @@ class Configuration:
             return 'http://localhost:3000'
     
     def _generate_admin_api_key(self) -> str:
-        """Generate a secure admin API key for Kortix administrative functions."""
+        """Generate a secure admin API key for VentureVerse administrative functions."""
         # Generate 32 random bytes and encode as hex for a readable API key
         key_bytes = secrets.token_bytes(32)
         return key_bytes.hex()

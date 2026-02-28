@@ -101,7 +101,7 @@ def _create_anthropic_model_config() -> ModelConfig:
 def _create_minimax_model_config() -> ModelConfig:
     return ModelConfig(
         reasoning=ReasoningSettings(enabled=True, split_output=True),
-        extra_body={"app": "Kortix.com"},
+        extra_body={"app": "VentureVerse.com"},
     )
 
 def _create_kimi_model_config() -> ModelConfig:
@@ -204,10 +204,10 @@ class ModelFactory:
         if main_llm == "kimi":
             return Model(
                 id="kortix/basic",
-                name="Kortix Basic",
+                name="Mira Basic",
                 litellm_model_id=custom_model or default_models["kimi"],
                 provider=ModelProvider.OPENROUTER,
-                aliases=["kortix-basic", "Kortix Basic"],
+                aliases=["kortix-basic", "Mira Basic", "Kortix Basic"],
                 context_window=262_144,
                 capabilities=[
                     ModelCapability.CHAT,
@@ -226,10 +226,10 @@ class ModelFactory:
         elif main_llm == "bedrock":
             return Model(
                 id="kortix/basic",
-                name="Kortix Basic",
+                name="Mira Basic",
                 litellm_model_id=custom_model or default_models["bedrock"],
                 provider=ModelProvider.BEDROCK,
-                aliases=["kortix-basic", "Kortix Basic"],
+                aliases=["kortix-basic", "Mira Basic", "Kortix Basic"],
                 context_window=200_000,
                 capabilities=[
                     ModelCapability.CHAT,
@@ -247,10 +247,10 @@ class ModelFactory:
         elif main_llm == "anthropic":
             return Model(
                 id="kortix/basic",
-                name="Kortix Basic",
+                name="Mira Basic",
                 litellm_model_id=custom_model or default_models["anthropic"],
                 provider=ModelProvider.ANTHROPIC,
-                aliases=["kortix-basic", "Kortix Basic"],
+                aliases=["kortix-basic", "Mira Basic", "Kortix Basic"],
                 context_window=200_000,
                 capabilities=[
                     ModelCapability.CHAT,
@@ -268,10 +268,10 @@ class ModelFactory:
         elif main_llm == "grok":
             return Model(
                 id="kortix/basic",
-                name="Kortix Basic",
+                name="Mira Basic",
                 litellm_model_id=custom_model or default_models["grok"],
                 provider=ModelProvider.OPENROUTER,
-                aliases=["kortix-basic", "Kortix Basic"],
+                aliases=["kortix-basic", "Mira Basic", "Kortix Basic"],
                 context_window=2_000_000,
                 capabilities=[
                     ModelCapability.CHAT,
@@ -288,10 +288,10 @@ class ModelFactory:
         elif main_llm == "openai":
             return Model(
                 id="kortix/basic",
-                name="Kortix Basic",
+                name="Mira Basic",
                 litellm_model_id=custom_model or default_models["openai"],
                 provider=ModelProvider.OPENROUTER,
-                aliases=["kortix-basic", "Kortix Basic"],
+                aliases=["kortix-basic", "Mira Basic", "Kortix Basic"],
                 context_window=128_000,
                 capabilities=[
                     ModelCapability.CHAT,
@@ -308,10 +308,10 @@ class ModelFactory:
             # Generic OpenRouter - use custom model or fallback to minimax
             return Model(
                 id="kortix/basic",
-                name="Kortix Basic",
+                name="Mira Basic",
                 litellm_model_id=custom_model or default_models["minimax"],
                 provider=ModelProvider.OPENROUTER,
-                aliases=["kortix-basic", "Kortix Basic"],
+                aliases=["kortix-basic", "Mira Basic", "Kortix Basic"],
                 context_window=200_000,
                 capabilities=[
                     ModelCapability.CHAT,
@@ -326,10 +326,10 @@ class ModelFactory:
         else:  # minimax or unknown
             return Model(
                 id="kortix/basic",
-                name="Kortix Basic",
+                name="Mira Basic",
                 litellm_model_id=custom_model or default_models["minimax"],
                 provider=ModelProvider.OPENROUTER,
-                aliases=["kortix-basic", "Kortix Basic"],
+                aliases=["kortix-basic", "Mira Basic", "Kortix Basic"],
                 context_window=200_000,
                 capabilities=[
                     ModelCapability.CHAT,
@@ -360,10 +360,10 @@ class ModelFactory:
         if main_llm == "kimi":
             return Model(
                 id="kortix/power",
-                name="Kortix Advanced Mode",
+                name="Mira Advanced Mode",
                 litellm_model_id=custom_model or default_models["kimi"],
                 provider=ModelProvider.OPENROUTER,
-                aliases=["kortix-power", "Kortix POWER Mode", "Kortix Power", "Kortix Advanced Mode"],
+                aliases=["kortix-power", "Kortix POWER Mode", "Kortix Power", "Kortix Advanced Mode", "Mira Advanced Mode", "Mira Advanced"],
                 context_window=262_144,
                 capabilities=[
                     ModelCapability.CHAT,
@@ -382,10 +382,10 @@ class ModelFactory:
         elif main_llm == "bedrock":
             return Model(
                 id="kortix/power",
-                name="Kortix Advanced Mode",
+                name="Mira Advanced Mode",
                 litellm_model_id=custom_model or default_models["bedrock"],
                 provider=ModelProvider.BEDROCK,
-                aliases=["kortix-power", "Kortix POWER Mode", "Kortix Power", "Kortix Advanced Mode"],
+                aliases=["kortix-power", "Kortix POWER Mode", "Kortix Power", "Kortix Advanced Mode", "Mira Advanced Mode", "Mira Advanced"],
                 context_window=200_000,
                 capabilities=[
                     ModelCapability.CHAT,
@@ -404,10 +404,10 @@ class ModelFactory:
         elif main_llm == "anthropic":
             return Model(
                 id="kortix/power",
-                name="Kortix Advanced Mode",
+                name="Mira Advanced Mode",
                 litellm_model_id=custom_model or default_models["anthropic"],
                 provider=ModelProvider.ANTHROPIC,
-                aliases=["kortix-power", "Kortix POWER Mode", "Kortix Power", "Kortix Advanced Mode"],
+                aliases=["kortix-power", "Kortix POWER Mode", "Kortix Power", "Kortix Advanced Mode", "Mira Advanced Mode", "Mira Advanced"],
                 context_window=200_000,
                 capabilities=[
                     ModelCapability.CHAT,
@@ -426,10 +426,10 @@ class ModelFactory:
         elif main_llm == "grok":
             return Model(
                 id="kortix/power",
-                name="Kortix Advanced Mode",
+                name="Mira Advanced Mode",
                 litellm_model_id=custom_model or default_models["grok"],
                 provider=ModelProvider.OPENROUTER,
-                aliases=["kortix-power", "Kortix POWER Mode", "Kortix Power", "Kortix Advanced Mode"],
+                aliases=["kortix-power", "Kortix POWER Mode", "Kortix Power", "Kortix Advanced Mode", "Mira Advanced Mode", "Mira Advanced"],
                 context_window=2_000_000,
                 capabilities=[
                     ModelCapability.CHAT,
@@ -447,10 +447,10 @@ class ModelFactory:
         elif main_llm == "openai":
             return Model(
                 id="kortix/power",
-                name="Kortix Advanced Mode",
+                name="Mira Advanced Mode",
                 litellm_model_id=custom_model or default_models["openai"],
                 provider=ModelProvider.OPENROUTER,
-                aliases=["kortix-power", "Kortix POWER Mode", "Kortix Power", "Kortix Advanced Mode"],
+                aliases=["kortix-power", "Kortix POWER Mode", "Kortix Power", "Kortix Advanced Mode", "Mira Advanced Mode", "Mira Advanced"],
                 context_window=128_000,
                 capabilities=[
                     ModelCapability.CHAT,
@@ -467,10 +467,10 @@ class ModelFactory:
             # Generic OpenRouter - use custom model or fallback to minimax
             return Model(
                 id="kortix/power",
-                name="Kortix Advanced Mode",
+                name="Mira Advanced Mode",
                 litellm_model_id=custom_model or default_models["minimax"],
                 provider=ModelProvider.OPENROUTER,
-                aliases=["kortix-power", "Kortix POWER Mode", "Kortix Power", "Kortix Advanced Mode"],
+                aliases=["kortix-power", "Kortix POWER Mode", "Kortix Power", "Kortix Advanced Mode", "Mira Advanced Mode", "Mira Advanced"],
                 context_window=200_000,
                 capabilities=[
                     ModelCapability.CHAT,
@@ -485,10 +485,10 @@ class ModelFactory:
         else:  # minimax or unknown
             return Model(
                 id="kortix/power",
-                name="Kortix Advanced Mode",
+                name="Mira Advanced Mode",
                 litellm_model_id=custom_model or default_models["minimax"],
                 provider=ModelProvider.OPENROUTER,
-                aliases=["kortix-power", "Kortix POWER Mode", "Kortix Power", "Kortix Advanced Mode"],
+                aliases=["kortix-power", "Kortix POWER Mode", "Kortix Power", "Kortix Advanced Mode", "Mira Advanced Mode", "Mira Advanced"],
                 context_window=200_000,
                 capabilities=[
                     ModelCapability.CHAT,
@@ -508,10 +508,10 @@ class ModelFactory:
     def create_test_model() -> Model:
         return Model(
             id="kortix/test",
-            name="Kortix Test",
+            name="Mira Test",
             litellm_model_id="openrouter/minimax/minimax-m2.1",
             provider=ModelProvider.OPENROUTER,
-            aliases=["kortix-test", "Kortix Test"],
+            aliases=["kortix-test", "Mira Test", "Kortix Test"],
             context_window=200_000,
             capabilities=[
                 ModelCapability.CHAT,

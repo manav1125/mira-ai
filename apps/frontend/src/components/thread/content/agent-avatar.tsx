@@ -33,7 +33,7 @@ export const AgentAvatar: React.FC<AgentAvatarProps> = ({
   // Agent data props
   agent: propAgent,
   agentId,
-  fallbackName = "Kortix",
+  fallbackName = "Mira",
 
   // Direct props
   iconName: propIconName,
@@ -91,7 +91,7 @@ export const AgentAvatar: React.FC<AgentAvatarProps> = ({
       >
         <img
           src="/kortix-symbol.svg"
-          alt="Kortix"
+          alt="Mira"
           className="flex-shrink-0 invert dark:invert-0"
           style={{ width: `${size * 0.5}px`, height: `${size * 0.5}px` }}
         />
@@ -159,7 +159,7 @@ interface AgentNameProps {
 export const AgentName: React.FC<AgentNameProps> = ({
   agent: propAgent,
   agentId,
-  fallback = "Kortix"
+  fallback = "Mira"
 }) => {
   const cachedAgent = useAgentFromCache(!propAgent && agentId ? agentId : undefined);
   const agent = propAgent || cachedAgent;
