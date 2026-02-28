@@ -1,4 +1,5 @@
 import os
+import mimetypes
 import shlex
 import asyncio
 import urllib.parse
@@ -419,6 +420,7 @@ async def list_files(
 async def read_file(
     sandbox_id: str, 
     path: str,
+    inline: bool = False,
     request: Request = None,
     user_id: Optional[str] = Depends(get_optional_user_id)
 ):
@@ -508,12 +510,17 @@ async def read_file(
         filename = os.path.basename(path)
         logger.debug(f"Successfully read file {filename} from sandbox {sandbox_id}")
         
-        # Ensure proper encoding by explicitly using UTF-8 for the filename in Content-Disposition header
-        # This applies RFC 5987 encoding for the filename to support non-ASCII characters
+        if inline:
+            guessed_type, _ = mimetypes.guess_type(filename)
+            media_type = guessed_type or "application/octet-stream"
+            return Response(content=content, media_type=media_type)
+
+        # Ensure proper encoding by explicitly using UTF-8 for the filename in Content-Disposition header.
+        # This applies RFC 5987 encoding for the filename to support non-ASCII characters.
         import urllib.parse
         encoded_filename = urllib.parse.quote(filename, safe='')
         content_disposition = f"attachment; filename*=UTF-8''{encoded_filename}"
-        
+
         return Response(
             content=content,
             media_type="application/octet-stream",

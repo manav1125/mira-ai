@@ -161,6 +161,7 @@ export function PresentationSlidePreview({
     <PresentationSlideCard
       slide={slideToDisplay}
       project={project}
+      accessToken={session?.access_token}
       onFullScreenClick={handleFullScreenClick}
       className={className}
       showFullScreenButton={true}

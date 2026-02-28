@@ -551,20 +551,29 @@ async def get_user_id_from_stream_auth(
 async def get_optional_user_id(request: Request) -> Optional[str]:
     auth_header = request.headers.get('Authorization')
     
-    if not auth_header or not auth_header.startswith('Bearer '):
+    token: Optional[str] = None
+    auth_method = "jwt"
+
+    if auth_header and auth_header.startswith('Bearer '):
+        token = auth_header.split(' ')[1]
+    else:
+        # Allow query token for iframe/SSE-style consumers that can't set headers.
+        token = request.query_params.get('token')
+        auth_method = "jwt_query"
+
+    if not token:
         return None
-    
-    token = auth_header.split(' ')[1]
-    
+
     try:
         payload = await _decode_jwt_with_verification_async(token)
-        
+
         user_id = payload.get('sub')
         if user_id:
             structlog.contextvars.bind_contextvars(
-                user_id=user_id
+                user_id=user_id,
+                auth_method=auth_method
             )
-        
+
         return user_id
     except HTTPException:
         return None

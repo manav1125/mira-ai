@@ -40,6 +40,16 @@ async function parseJsonResponse(response: Response, sourceUrl: string): Promise
   }
 }
 
+function isPresentationMetadata(data: any): boolean {
+  return (
+    data &&
+    typeof data === 'object' &&
+    typeof data.presentation_name === 'string' &&
+    typeof data.slides === 'object' &&
+    data.slides !== null
+  );
+}
+
 /**
  * Load presentation metadata with a resilient strategy:
  * 1. Prefer backend sandbox file API (stable/authenticated path)
@@ -67,6 +77,8 @@ export async function fetchPresentationMetadata({
       const headers: Record<string, string> = {};
       if (accessToken) {
         headers.Authorization = `Bearer ${accessToken}`;
+        // Include token param as fallback for environments where headers are stripped.
+        apiUrl.searchParams.append('token', accessToken);
       }
       candidates.push({ url: apiUrl.toString(), headers });
     } catch (err) {
@@ -75,7 +87,9 @@ export async function fetchPresentationMetadata({
     }
   }
 
-  if (sandboxUrl) {
+  // Prefer backend file API whenever available. The direct sandbox URL may require
+  // separate Daytona auth and can redirect to HTML login pages.
+  if (sandboxUrl && candidates.length === 0) {
     candidates.push({ url: `${sandboxUrl.replace(/\/+$/, '')}/presentations/${sanitizedName}/metadata.json` });
   }
 
@@ -97,7 +111,14 @@ export async function fetchPresentationMetadata({
         continue;
       }
 
-      return await parseJsonResponse(response, candidate.url);
+      const parsed = await parseJsonResponse(response, candidate.url);
+      if (!isPresentationMetadata(parsed)) {
+        const detail = typeof parsed?.detail === 'string' ? parsed.detail : 'unexpected JSON shape';
+        errors.push(`${candidate.url} -> invalid metadata payload (${detail})`);
+        continue;
+      }
+
+      return parsed;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       errors.push(`${candidate.url} -> ${message}`);

@@ -16,6 +16,7 @@ interface SlideMetadata {
 interface PresentationSlideCardProps {
   slide: SlideMetadata & { number: number };
   project?: Project;
+  accessToken?: string;
   onFullScreenClick?: (slideNumber: number) => void;
   className?: string;
   showFullScreenButton?: boolean;
@@ -25,6 +26,7 @@ interface PresentationSlideCardProps {
 export function PresentationSlideCard({
   slide,
   project,
+  accessToken,
   onFullScreenClick,
   className = '',
   showFullScreenButton = true,
@@ -35,9 +37,15 @@ export function PresentationSlideCard({
 
   const slidePreviewUrl = useMemo(() => {
     if (!project?.sandbox?.sandbox_url) return null;
-    const url = constructHtmlPreviewUrl(project.sandbox.sandbox_url, slide.file_path);
+    const url = constructHtmlPreviewUrl(project.sandbox.sandbox_url, slide.file_path, {
+      preferBackendProxy: true,
+      sandboxId: project?.sandbox?.id,
+      accessToken,
+      inline: true,
+    });
+    if (!url) return null;
     return refreshTimestamp ? `${url}?t=${refreshTimestamp}` : url;
-  }, [project?.sandbox?.sandbox_url, slide.file_path, refreshTimestamp]);
+  }, [project?.sandbox?.sandbox_url, project?.sandbox?.id, slide.file_path, refreshTimestamp, accessToken]);
 
   useEffect(() => {
     if (!containerRef) return;
@@ -179,4 +187,3 @@ export function PresentationSlideCard({
     </div>
   );
 }
-

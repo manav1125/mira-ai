@@ -784,6 +784,7 @@ export function PresentationViewer({
                   <PresentationSlideCard
                     slide={slide}
                     project={project}
+                    accessToken={session?.access_token}
                     onFullScreenClick={(slideNumber) => {
                       if (openPresentation && project?.sandbox?.sandbox_url && (extractedPresentationName || streamingPresentationName)) {
                         openPresentation(
@@ -880,6 +881,7 @@ export function PresentationViewer({
                   <PresentationSlideCard
                     slide={slide}
                     project={project}
+                    accessToken={session?.access_token}
                     onFullScreenClick={(slideNumber) => {
                       if (openPresentation && project?.sandbox?.sandbox_url && extractedPresentationName) {
                         openPresentation(extractedPresentationName, project.sandbox.sandbox_url, slideNumber, project.sandbox.id);

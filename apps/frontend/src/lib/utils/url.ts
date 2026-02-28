@@ -1,19 +1,11 @@
-/**
- * Constructs a preview URL for HTML files in the sandbox environment.
- * Properly handles URL encoding of file paths by encoding each path segment individually.
- *
- * @param sandboxUrl - The base URL of the sandbox
- * @param filePath - The path to the HTML file (can include /workspace/ prefix, or be a full API URL)
- * @returns The properly encoded preview URL, or undefined if inputs are invalid
- */
-export function constructHtmlPreviewUrl(
-  sandboxUrl: string | undefined,
-  filePath: string | undefined,
-): string | undefined {
-  if (!sandboxUrl || !filePath) {
-    return undefined;
-  }
+interface HtmlPreviewUrlOptions {
+  sandboxId?: string;
+  accessToken?: string;
+  preferBackendProxy?: boolean;
+  inline?: boolean;
+}
 
+function extractWorkspacePathFromFilePath(filePath: string): string | undefined {
   let processedPath = filePath;
 
   // If filePath is a full URL (API endpoint), extract the path parameter
@@ -37,7 +29,7 @@ export function constructHtmlPreviewUrl(
             if (sandboxMatch) {
               processedPath = decodeURIComponent(sandboxMatch[1]);
             } else {
-              // Can't extract path, return undefined
+              // Can't extract path
               return undefined;
             }
           }
@@ -48,7 +40,7 @@ export function constructHtmlPreviewUrl(
         if (pathMatch) {
           processedPath = decodeURIComponent(pathMatch[1]);
         } else {
-          // Can't extract path, return undefined
+          // Can't extract path
           return undefined;
         }
       }
@@ -57,6 +49,59 @@ export function constructHtmlPreviewUrl(
       console.warn('Failed to parse filePath as URL, treating as regular path:', filePath);
     }
   }
+
+  // Normalize to /workspace/... because backend file API expects workspace-absolute paths.
+  if (!processedPath.startsWith('/workspace')) {
+    processedPath = `/workspace/${processedPath.replace(/^\/+/, '')}`;
+  }
+
+  return processedPath;
+}
+
+/**
+ * Constructs a preview URL for HTML files in the sandbox environment.
+ * Properly handles URL encoding of file paths by encoding each path segment individually.
+ *
+ * @param sandboxUrl - The base URL of the sandbox
+ * @param filePath - The path to the HTML file (can include /workspace/ prefix, or be a full API URL)
+ * @param options - Optional URL construction behavior
+ * @returns The properly encoded preview URL, or undefined if inputs are invalid
+ */
+export function constructHtmlPreviewUrl(
+  sandboxUrl: string | undefined,
+  filePath: string | undefined,
+  options?: HtmlPreviewUrlOptions,
+): string | undefined {
+  if (!sandboxUrl || !filePath) {
+    return undefined;
+  }
+
+  const workspacePath = extractWorkspacePathFromFilePath(filePath);
+  if (!workspacePath) {
+    return undefined;
+  }
+
+  if (options?.preferBackendProxy && options.sandboxId && options.accessToken) {
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || '';
+    if (backendUrl) {
+      try {
+        const normalizedBackendUrl = backendUrl.startsWith('http')
+          ? backendUrl
+          : `${typeof window !== 'undefined' ? window.location.origin : ''}${backendUrl.startsWith('/') ? '' : '/'}${backendUrl}`;
+        const apiUrl = new URL(`${normalizedBackendUrl.replace(/\/+$/, '')}/sandboxes/${options.sandboxId}/files/content`);
+        apiUrl.searchParams.append('path', workspacePath);
+        apiUrl.searchParams.append('token', options.accessToken);
+        if (options.inline !== false) {
+          apiUrl.searchParams.append('inline', 'true');
+        }
+        return apiUrl.toString();
+      } catch (e) {
+        console.warn('Failed to build backend HTML preview URL, falling back to sandbox URL:', e);
+      }
+    }
+  }
+
+  let processedPath = workspacePath;
 
   // Remove /workspace/ prefix if present
   processedPath = processedPath.replace(/^\/workspace\//, '');

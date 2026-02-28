@@ -362,8 +362,25 @@ export function FullScreenPresentationViewer({
       }
 
       const slideUrl = constructHtmlPreviewUrl(sandboxUrl, slide.file_path);
+      const authenticatedSlideUrl = constructHtmlPreviewUrl(sandboxUrl, slide.file_path, {
+        preferBackendProxy: true,
+        sandboxId,
+        accessToken: session?.access_token,
+        inline: true,
+      });
+      const effectiveSlideUrl = authenticatedSlideUrl || slideUrl;
+      if (!effectiveSlideUrl) {
+        return (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <Presentation className="h-12 w-12 mx-auto mb-4 text-zinc-400" />
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">No slide content to preview</p>
+            </div>
+          </div>
+        );
+      }
       // Add cache-busting to iframe src to ensure fresh content
-      const slideUrlWithCacheBust = `${slideUrl}?t=${refreshTimestamp}`;
+      const slideUrlWithCacheBust = `${effectiveSlideUrl}?t=${refreshTimestamp}`;
 
       return (
         <div className="w-full h-full flex items-center justify-center bg-transparent">
@@ -411,7 +428,7 @@ export function FullScreenPresentationViewer({
 
     SlideIframeComponent.displayName = 'SlideIframeComponent';
     return SlideIframeComponent;
-  }, [sandboxUrl, refreshTimestamp, showEditor]);
+  }, [sandboxUrl, sandboxId, session?.access_token, refreshTimestamp, showEditor]);
 
   // Render slide iframe with proper scaling
   const renderSlide = useMemo(() => {
