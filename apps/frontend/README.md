@@ -21,6 +21,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 NEXT_PUBLIC_BACKEND_URL=http://localhost:8000/v1
 NEXT_PUBLIC_URL=http://localhost:3000
 NEXT_PUBLIC_ENV_MODE=LOCAL
+NEXT_PUBLIC_SYNCFUSION_LICENSE_KEY=your-syncfusion-license-key
 ```
 
 ## Getting Started

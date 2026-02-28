@@ -42,10 +42,12 @@ import '../../../../../node_modules/@syncfusion/ej2-grids/styles/material.css';
 import '../../../../../node_modules/@syncfusion/ej2-react-spreadsheet/styles/material.css';
 import '../../tool-views/spreadsheet/kortix-spreadsheet-styles.css';
 
-const SYNCFUSION_LICENSE = "Ngo9BigBOggjHTQxAR8/V1JGaF5cXGpCfEx0QXxbf1x2ZFRMZVxbQXNPIiBoS35RcEViW3pfc3FXQmJYUkZ3VEFf";
+const SYNCFUSION_LICENSE = process.env.NEXT_PUBLIC_SYNCFUSION_LICENSE_KEY?.trim();
 const SYNCFUSION_BASE_URL = 'https://ej2services.syncfusion.com/production/web-services/api/spreadsheet';
 
-registerLicense(SYNCFUSION_LICENSE);
+if (SYNCFUSION_LICENSE) {
+  registerLicense(SYNCFUSION_LICENSE);
+}
 
 interface SpreadsheetTab {
   id: string;
