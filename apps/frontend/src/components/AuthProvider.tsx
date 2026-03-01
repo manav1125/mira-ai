@@ -11,6 +11,7 @@ import { createClient } from '@/lib/supabase/client';
 import { User, Session } from '@supabase/supabase-js';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { clearUserLocalStorage } from '@/lib/utils/clear-local-storage';
+import { cacheAuthTokenFromSession, getStoredAuthSnapshot } from '@/lib/auth-token';
 // Auth tracking moved to AuthEventTracker component (handles OAuth redirects)
 
 type AuthContextType = {
@@ -31,10 +32,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     const getInitialSession = async () => {
+      const stored = getStoredAuthSnapshot();
+      if (stored.session) {
+        setSession(stored.session);
+        setUser(stored.user);
+        cacheAuthTokenFromSession(stored.session);
+      }
+
       try {
-        const {
-          data: { session: currentSession },
-        } = await supabase.auth.getSession();
+        const sessionResult = await Promise.race([
+          supabase.auth.getSession(),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 3500)),
+        ]);
+
+        if (!sessionResult || !('data' in sessionResult)) {
+          return;
+        }
+
+        const currentSession = sessionResult.data?.session ?? null;
+        cacheAuthTokenFromSession(currentSession);
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
       } catch (error) {
@@ -47,6 +63,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, newSession) => {
+        cacheAuthTokenFromSession(newSession);
         setSession(newSession);
         setUser(newSession?.user ?? null);
 

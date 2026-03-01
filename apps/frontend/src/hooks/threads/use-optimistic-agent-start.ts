@@ -22,6 +22,7 @@ import {
   getStreamPreconnectService, 
   storePreconnectInfo 
 } from '@/lib/streaming/stream-preconnect';
+import { getAuthTokenWithTimeout } from '@/lib/auth-token';
 
 export interface OptimisticAgentStartOptions {
   message: string;
@@ -196,12 +197,7 @@ export function useOptimisticAgentStart(
           // The ThreadComponent will adopt this connection when it mounts
           try {
             const preconnectService = getStreamPreconnectService();
-            const getAuthToken = async () => {
-              const { createClient } = await import('@/lib/supabase/client');
-              const supabase = createClient();
-              const { data: { session } } = await supabase.auth.getSession();
-              return session?.access_token || null;
-            };
+            const getAuthToken = async () => getAuthTokenWithTimeout(3500);
             
             storePreconnectInfo(response.agent_run_id, threadId);
             await preconnectService.preconnect(response.agent_run_id, threadId, getAuthToken);
@@ -315,4 +311,3 @@ export function useOptimisticAgentStart(
     clearAgentLimitData,
   };
 }
-

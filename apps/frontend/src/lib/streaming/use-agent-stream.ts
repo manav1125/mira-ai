@@ -33,9 +33,9 @@ import {
 } from './tool-accumulator';
 import { StreamConnection } from './stream-connection';
 import { 
-  getStreamPreconnectService, 
-  consumePreconnectInfo,
+  getStreamPreconnectService,
 } from './stream-preconnect';
+import { getAuthTokenWithTimeout } from '@/lib/auth-token';
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || '';
 
@@ -287,11 +287,13 @@ export function useAgentStream(
   }, []);
   
   const checkAgentStatus = useCallback(async (runId: string): Promise<{ status: string; error?: string }> => {
-    const response = await fetch(`${API_URL}/agent-runs/${runId}/status`, {
-      headers: {
-        'Authorization': `Bearer ${await getAuthToken()}`,
-      },
-    });
+    const token = await getAuthToken();
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${API_URL}/agent-runs/${runId}/status`, { headers });
     
     if (!response.ok) {
       throw new Error(`Failed to get agent status: ${response.status}`);
@@ -301,17 +303,7 @@ export function useAgentStream(
   }, []);
   
   const getAuthToken = useCallback(async (): Promise<string | null> => {
-    const { createClient } = await import('@/lib/supabase/client');
-    const supabase = createClient();
-    const sessionResult = await Promise.race([
-      supabase.auth.getSession(),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), 3500)),
-    ]);
-    if (!sessionResult || !('data' in sessionResult)) {
-      return null;
-    }
-    const session = sessionResult.data?.session;
-    return session?.access_token || null;
+    return getAuthTokenWithTimeout(3500);
   }, []);
   
   const handleStreamMessage = useCallback((rawData: string) => {
@@ -691,12 +683,16 @@ export function useAgentStream(
     if (runId) {
       try {
         const token = await getAuthToken();
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+
         await fetch(`${API_URL}/agent-runs/${runId}/stop`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
+          headers,
         });
         
         optionsRef.current.showToast?.('Worker stopped.', 'success');

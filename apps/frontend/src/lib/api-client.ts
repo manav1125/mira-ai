@@ -1,6 +1,6 @@
-import { createClient } from '@/lib/supabase/client';
 import { handleApiError, handleNetworkError, ErrorContext, ApiError } from './error-handler';
 import { parseTierRestrictionError, RequestTooLargeError } from './api/errors';
+import { getAuthTokenWithTimeout } from '@/lib/auth-token';
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || '';
 
@@ -17,25 +17,6 @@ export interface ApiResponse<T = any> {
 }
 
 const SESSION_FETCH_TIMEOUT_MS = 4000;
-
-async function getSessionWithTimeout(timeoutMs: number) {
-  const supabase = createClient();
-
-  try {
-    const sessionResult = await Promise.race([
-      supabase.auth.getSession(),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
-    ]);
-
-    if (!sessionResult || !('data' in sessionResult)) {
-      return null;
-    }
-
-    return sessionResult.data?.session || null;
-  } catch {
-    return null;
-  }
-}
 
 async function makeRequest<T = any>(
   url: string,
@@ -60,7 +41,7 @@ async function makeRequest<T = any>(
       }
     }, timeout);
 
-    const session = await getSessionWithTimeout(
+    const accessToken = await getAuthTokenWithTimeout(
       Math.min(SESSION_FETCH_TIMEOUT_MS, Math.max(1500, Math.floor(timeout / 2)))
     );
 
@@ -75,8 +56,12 @@ async function makeRequest<T = any>(
     // Merge with any headers from fetchOptions
     Object.assign(headers, fetchOptions.headers as Record<string, string>);
 
-    if (session?.access_token) {
-      headers['Authorization'] = `Bearer ${session.access_token}`;
+    const hasAuthorizationHeader = Object.keys(headers).some(
+      (headerName) => headerName.toLowerCase() === 'authorization'
+    );
+
+    if (accessToken && !hasAuthorizationHeader) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
     }
 
     // Note: X-Refresh-Token was removed to reduce header size and prevent HTTP 431 errors.

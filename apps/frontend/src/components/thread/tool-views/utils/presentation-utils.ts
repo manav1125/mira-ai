@@ -1,7 +1,7 @@
 import { backendApi } from "@/lib/api-client";
-import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
 import { extractSandboxIdFromSandboxUrl, normalizeSandboxBaseUrl } from "@/lib/utils/url";
+import { getAuthTokenWithTimeout } from "@/lib/auth-token";
 
 export enum DownloadFormat {
   PDF = 'pdf',
@@ -108,18 +108,7 @@ export async function fetchPresentationMetadata({
   let effectiveAccessToken = accessToken;
 
   if (!effectiveAccessToken) {
-    try {
-      const supabase = createClient();
-      const sessionResult = await Promise.race([
-        supabase.auth.getSession(),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
-      ]);
-      if (sessionResult && 'data' in sessionResult) {
-        effectiveAccessToken = sessionResult.data.session?.access_token || undefined;
-      }
-    } catch {
-      // Ignore auth retrieval errors and continue with existing candidates.
-    }
+    effectiveAccessToken = (await getAuthTokenWithTimeout(3000)) || undefined;
   }
 
   const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || '';
@@ -493,8 +482,10 @@ export const handleGoogleSlidesUpload = async (sandboxUrl: string, presentationP
       throw new Error('Invalid sandbox URL');
     }
 
-    const supabase = createClient();
-    const { data: { session } } = await supabase.auth.getSession();
+    const accessToken = await getAuthTokenWithTimeout(3500);
+    if (!accessToken) {
+      throw new Error('Authentication required');
+    }
     
     // Use proper backend API client with authentication and extended timeout for PPTX generation
     const response = await backendApi.post('/presentation-tools/convert-and-upload-to-slides', {
@@ -502,7 +493,7 @@ export const handleGoogleSlidesUpload = async (sandboxUrl: string, presentationP
       sandbox_url: normalizedSandboxUrl,
     }, {
       headers: {
-        'Authorization': `Bearer ${session.access_token}`,
+        'Authorization': `Bearer ${accessToken}`,
       },
       timeout: 180000, // 3 minutes timeout for PPTX generation (longer than backend's 2 minute timeout)
     });

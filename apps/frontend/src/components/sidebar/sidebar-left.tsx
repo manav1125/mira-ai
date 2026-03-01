@@ -43,6 +43,7 @@ import { getPlanIcon } from '@/components/billing/plan-utils';
 import { Kbd } from '../ui/kbd';
 import { useTranslations } from 'next-intl';
 import { KbdGroup } from '../ui/kbd';
+import { getStoredAuthSnapshot } from '@/lib/auth-token';
 
 
 function UserProfileSection({ user }: { user: any }) {
@@ -176,8 +177,31 @@ export function SidebarLeft({
     let isMounted = true;
 
     const fetchUserData = async () => {
+      const applyFallbackIdentity = () => {
+        if (!isMounted) return;
+        setUser((prev) => ({
+          ...prev,
+          name: prev.name === 'Loading...' ? 'User' : prev.name,
+          email: prev.email === 'loading@example.com' ? '' : prev.email,
+          isAdmin,
+        }));
+      };
+
       try {
         const supabase = createClient();
+        const storedAuth = getStoredAuthSnapshot();
+        if (storedAuth.user && isMounted) {
+          setUser({
+            name:
+              storedAuth.user.user_metadata?.name ||
+              storedAuth.user.email?.split('@')[0] ||
+              'User',
+            email: storedAuth.user.email || '',
+            avatar: storedAuth.user.user_metadata?.avatar_url || '',
+            isAdmin,
+          });
+        }
+
         const sessionResult = await Promise.race([
           supabase.auth.getSession(),
           new Promise<null>((resolve) => setTimeout(() => resolve(null), 3500)),
@@ -204,10 +228,17 @@ export function SidebarLeft({
           new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
         ]);
 
-        if (!isMounted || !userResult || !('data' in userResult)) return;
+        if (!isMounted) return;
+        if (!userResult || !('data' in userResult)) {
+          applyFallbackIdentity();
+          return;
+        }
 
         const resolvedUser = userResult.data.user;
-        if (!resolvedUser) return;
+        if (!resolvedUser) {
+          applyFallbackIdentity();
+          return;
+        }
 
         setUser({
           name:
@@ -223,14 +254,7 @@ export function SidebarLeft({
         console.error('Failed to load sidebar user profile:', error);
       }
 
-      if (isMounted) {
-        setUser((prev) => ({
-          ...prev,
-          name: prev.name === 'Loading...' ? 'User' : prev.name,
-          email: prev.email === 'loading@example.com' ? '' : prev.email,
-          isAdmin,
-        }));
-      }
+      applyFallbackIdentity();
     };
 
     fetchUserData();
