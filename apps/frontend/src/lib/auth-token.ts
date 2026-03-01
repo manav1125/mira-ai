@@ -26,25 +26,46 @@ function decodeBase64Url(input: string): string | null {
   return null;
 }
 
-function getTokenExpiryMs(token: string): number {
+type JwtPayload = {
+  exp?: number;
+  sub?: string;
+  role?: string;
+  aud?: string | string[];
+};
+
+function parseJwtPayload(token: string): JwtPayload | null {
   try {
     const parts = token.split('.');
-    if (parts.length !== 3) return 0;
-
+    if (parts.length !== 3) return null;
     const payloadJson = decodeBase64Url(parts[1]);
-    if (!payloadJson) return 0;
-
+    if (!payloadJson) return null;
     const payload = JSON.parse(payloadJson);
-    if (!payload?.exp || typeof payload.exp !== 'number') return 0;
-
-    return payload.exp * 1000;
+    if (!payload || typeof payload !== 'object') return null;
+    return payload as JwtPayload;
   } catch {
+    return null;
+  }
+}
+
+function getTokenExpiryMs(token: string): number {
+  const payload = parseJwtPayload(token);
+  if (!payload?.exp || typeof payload.exp !== 'number') {
     return 0;
   }
+  return payload.exp * 1000;
 }
 
 function looksLikeJwt(value: unknown): value is string {
   return typeof value === 'string' && value.split('.').length === 3;
+}
+
+function isUserAccessToken(token: string): boolean {
+  const payload = parseJwtPayload(token);
+  if (!payload) return false;
+  if (typeof payload.sub !== 'string' || payload.sub.trim().length === 0) return false;
+  const role = typeof payload.role === 'string' ? payload.role.toLowerCase() : '';
+  if (role === 'anon' || role === 'service_role') return false;
+  return true;
 }
 
 function isTokenFresh(token: string): boolean {
@@ -54,12 +75,22 @@ function isTokenFresh(token: string): boolean {
 }
 
 function setCachedToken(token: string | null) {
+  if (token && (!isUserAccessToken(token) || !isTokenFresh(token))) {
+    cachedToken = null;
+    cachedTokenExpiryMs = 0;
+    return;
+  }
   cachedToken = token;
   cachedTokenExpiryMs = token ? getTokenExpiryMs(token) : 0;
 }
 
 function getCachedToken(): string | null {
   if (!cachedToken) return null;
+  if (!isUserAccessToken(cachedToken)) {
+    cachedToken = null;
+    cachedTokenExpiryMs = 0;
+    return null;
+  }
   if (!cachedTokenExpiryMs) return cachedToken;
 
   if (cachedTokenExpiryMs <= Date.now() + TOKEN_EXPIRY_SKEW_MS) {
@@ -75,7 +106,7 @@ function extractTokenFromUnknown(value: unknown): string | null {
   if (!value) return null;
 
   if (looksLikeJwt(value)) {
-    return value;
+    return isUserAccessToken(value) ? value : null;
   }
 
   if (Array.isArray(value)) {
@@ -96,7 +127,7 @@ function extractTokenFromUnknown(value: unknown): string | null {
     ];
 
     for (const candidate of directCandidates) {
-      if (looksLikeJwt(candidate)) {
+      if (looksLikeJwt(candidate) && isUserAccessToken(candidate)) {
         return candidate;
       }
     }
@@ -212,10 +243,14 @@ function readSnapshotFromStorage(): { token: string | null; session: Session | n
 
       const session = extractSessionFromUnknown(parsed);
       const token =
-        (session?.access_token && looksLikeJwt(session.access_token) ? session.access_token : null) ||
+        (session?.access_token &&
+        looksLikeJwt(session.access_token) &&
+        isUserAccessToken(session.access_token)
+          ? session.access_token
+          : null) ||
         extractTokenFromUnknown(parsed);
 
-      if (!token || !isTokenFresh(token)) {
+      if (!token || !isUserAccessToken(token) || !isTokenFresh(token)) {
         continue;
       }
 
@@ -230,7 +265,12 @@ function readSnapshotFromStorage(): { token: string | null; session: Session | n
 }
 
 export function cacheAuthTokenFromSession(session: Session | null | undefined): void {
-  const token = session?.access_token && looksLikeJwt(session.access_token) ? session.access_token : null;
+  const token =
+    session?.access_token &&
+    looksLikeJwt(session.access_token) &&
+    isUserAccessToken(session.access_token)
+      ? session.access_token
+      : null;
   if (!token) {
     setCachedToken(null);
     return;
@@ -285,7 +325,7 @@ export async function getAuthTokenWithTimeout(timeoutMs: number = DEFAULT_AUTH_T
   const session = await getAuthSessionWithTimeout(timeoutMs);
   const token = session?.access_token || null;
 
-  if (token && isTokenFresh(token)) {
+  if (token && isUserAccessToken(token) && isTokenFresh(token)) {
     setCachedToken(token);
     return token;
   }
@@ -295,7 +335,7 @@ export async function getAuthTokenWithTimeout(timeoutMs: number = DEFAULT_AUTH_T
   if (extendedTimeout !== timeoutMs) {
     const extendedSession = await getAuthSessionWithTimeout(extendedTimeout);
     const extendedToken = extendedSession?.access_token || null;
-    if (extendedToken && isTokenFresh(extendedToken)) {
+    if (extendedToken && isUserAccessToken(extendedToken) && isTokenFresh(extendedToken)) {
       setCachedToken(extendedToken);
       return extendedToken;
     }

@@ -5,6 +5,7 @@ import asyncio
 import urllib.parse
 import uuid
 import json
+import base64
 from typing import Optional, TypeVar, Callable, Awaitable, Dict, List
 from datetime import datetime, timezone
 from enum import Enum
@@ -238,6 +239,43 @@ def normalize_path(path: str) -> str:
     except Exception as e:
         logger.error(f"Error normalizing path '{path}': {str(e)}")
         return path  # Return original path if decoding fails
+
+
+def _looks_like_preview_interstitial(content: bytes) -> bool:
+    """Detect Daytona proxy warning HTML returned instead of actual file bytes."""
+    if not content:
+        return False
+    snippet = content[:4096].decode("utf-8", errors="ignore").lower()
+    if "<!doctype html" not in snippet and "<html" not in snippet:
+        return False
+    markers = (
+        "preview url warning",
+        "this website is served through daytona.io",
+        "daytonaproxy",
+    )
+    return any(marker in snippet for marker in markers)
+
+
+async def _download_file_via_shell(sandbox: AsyncSandbox, path: str) -> bytes:
+    """
+    Fallback file fetch path that bypasses SDK file-download URL behavior.
+    Useful when proxy interstitial HTML is returned for normal downloads.
+    """
+    py = (
+        "import base64, pathlib; "
+        f"print(base64.b64encode(pathlib.Path({path!r}).read_bytes()).decode('ascii'))"
+    )
+    cmd = f"python3 -c {shlex.quote(py)}"
+    result = await sandbox.process.exec(cmd, timeout=30)
+    if result.exit_code != 0:
+        raise RuntimeError(result.result or f"shell read failed for path: {path}")
+    encoded = (result.result or "").strip()
+    if not encoded:
+        return b""
+    try:
+        return base64.b64decode(encoded, validate=True)
+    except Exception as exc:
+        raise RuntimeError(f"shell read returned invalid base64 for path {path}: {exc}") from exc
 
 
 
@@ -568,26 +606,45 @@ async def read_file(
                 operation=lambda: sandbox.fs.download_file(path),
                 operation_name=f"download_file({path}) from sandbox {sandbox_id}"
             )
+            # Some Daytona proxy flows can return interstitial HTML instead of file bytes.
+            # Retry through shell read to guarantee real file content.
+            if _looks_like_preview_interstitial(content):
+                logger.warning(
+                    f"download_file returned preview interstitial for {path} in sandbox {sandbox_id}; "
+                    "retrying via shell fallback"
+                )
+                content = await _download_file_via_shell(sandbox, path)
         except Exception as download_err:
             error_msg = str(download_err)
             logger.error(f"Error downloading file {path} from sandbox {sandbox_id}: {error_msg}")
-            # Check if it's a file not found error
-            if 'not found' in error_msg.lower() or '404' in error_msg.lower():
-                raise HTTPException(
-                    status_code=404, 
-                    detail=f"File not found: {path}"
+            # Try shell fallback before returning hard failure.
+            try:
+                content = await _download_file_via_shell(sandbox, path)
+                logger.warning(
+                    f"Recovered file read via shell fallback for {path} in sandbox {sandbox_id} "
+                    f"after SDK download failure"
                 )
-            # Check if it's a permission error
-            if 'permission' in error_msg.lower() or '403' in error_msg.lower():
-                raise HTTPException(
-                    status_code=403,
-                    detail=f"Permission denied: {path}"
+            except Exception as fallback_err:
+                logger.error(
+                    f"Shell fallback also failed for file {path} in sandbox {sandbox_id}: {fallback_err}"
                 )
-            # For other errors, return 500
-            raise HTTPException(
-                status_code=500, 
-                detail=f"Failed to download file: {error_msg}"
-            )
+                # Check if it's a file not found error
+                if 'not found' in error_msg.lower() or '404' in error_msg.lower():
+                    raise HTTPException(
+                        status_code=404, 
+                        detail=f"File not found: {path}"
+                    )
+                # Check if it's a permission error
+                if 'permission' in error_msg.lower() or '403' in error_msg.lower():
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"Permission denied: {path}"
+                    )
+                # For other errors, return 500
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"Failed to download file: {error_msg}"
+                )
         
         # Return a Response object with the content directly
         filename = os.path.basename(path)
