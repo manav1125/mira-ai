@@ -1,6 +1,7 @@
 from core.agentpress.tool import ToolResult, openapi_schema, tool_metadata
 from core.sandbox.tool_base import SandboxToolsBase
 from core.agentpress.thread_manager import ThreadManager
+from core.utils.sandbox_utils import normalize_preview_url
 import asyncio
 import time
 
@@ -94,6 +95,7 @@ class SandboxExposeTool(SandboxToolsBase):
             
             # Extract the actual URL from the preview link object
             url = preview_link.url if hasattr(preview_link, 'url') else str(preview_link)
+            url = normalize_preview_url(url) or url
             
             return self.success_response({
                 "url": url,

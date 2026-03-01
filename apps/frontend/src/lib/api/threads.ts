@@ -334,83 +334,51 @@ export const getThreads = async (projectId?: string): Promise<Thread[]> => {
 };
 
 export const getThreadsPaginated = async (projectId?: string, page: number = 1, limit: number = 20): Promise<ThreadsResponse> => {
-  try {
-    const params = new URLSearchParams({
-      page: page.toString(),
-      limit: limit.toString(),
+  const params = new URLSearchParams({
+    page: page.toString(),
+    limit: limit.toString(),
+  });
+
+  const response = await backendApi.get<{ threads: any[]; pagination: any }>(`/threads?${params.toString()}`, {
+    showErrors: false,
+    timeout: 15000,
+  });
+
+  if (response.error) {
+    console.error('Error getting paginated threads:', response.error);
+    handleApiError(response.error, {
+      operation: 'load threads',
+      resource: projectId ? `threads for project ${projectId}` : 'threads'
     });
-    
-    const response = await backendApi.get<{ threads: any[]; pagination: any }>(`/threads?${params.toString()}`, {
-      showErrors: false,
-    });
-
-    if (response.error) {
-      console.error('Error getting paginated threads:', response.error);
-      handleApiError(response.error, { 
-        operation: 'load threads', 
-        resource: projectId ? `threads for project ${projectId}` : 'threads' 
-      });
-      return {
-        threads: [],
-        pagination: {
-          page: 1,
-          limit: 20,
-          total: 0,
-          pages: 0,
-        }
-      };
-    }
-
-    if (!response.data?.threads) {
-      return {
-        threads: [],
-        pagination: response.data?.pagination || {
-          page: 1,
-          limit: 50,
-          total: 0,
-          pages: 0,
-        }
-      };
-    }
-
-    let threads = response.data.threads.map((thread: any) => ({
-      thread_id: thread.thread_id,
-      project_id: thread.project_id,
-      created_at: thread.created_at,
-      updated_at: thread.updated_at,
-      metadata: thread.metadata || {},
-      project: thread.project, // Preserve project data for getProjects to use
-    }));
-
-    if (projectId) {
-      threads = threads.filter((thread: Thread) => thread.project_id === projectId);
-    }
-
-    return {
-      threads,
-      pagination: response.data.pagination || {
-        page,
-        limit,
-        total: threads.length,
-        pages: 1,
-      }
-    };
-  } catch (err) {
-    console.error('Error fetching paginated threads:', err);
-    handleApiError(err, { 
-      operation: 'load threads', 
-      resource: projectId ? `threads for project ${projectId}` : 'threads' 
-    });
-    return {
-      threads: [],
-      pagination: {
-        page: 1,
-        limit: 50,
-        total: 0,
-        pages: 0,
-      }
-    };
+    throw new Error(response.error.message || 'Failed to load threads');
   }
+
+  if (!response.data) {
+    throw new Error('Empty threads response');
+  }
+
+  let threads = (response.data.threads || []).map((thread: any) => ({
+    thread_id: thread.thread_id,
+    project_id: thread.project_id,
+    created_at: thread.created_at,
+    updated_at: thread.updated_at,
+    metadata: thread.metadata || {},
+    project: thread.project, // Preserve project data for getProjects to use
+  }));
+
+  if (projectId) {
+    threads = threads.filter((thread: Thread) => thread.project_id === projectId);
+  }
+
+  return {
+    threads,
+    pagination: response.data.pagination || {
+      page,
+      limit,
+      total: threads.length,
+      pages: 1,
+    }
+  };
 };
 
 export const getThread = async (threadId: string): Promise<Thread> => {
@@ -623,4 +591,3 @@ export const searchThreads = async (
     };
   }
 };
-

@@ -19,7 +19,7 @@ from core.sandbox.sandbox import get_or_start_sandbox, delete_sandbox, create_sa
 from core.utils.logger import logger
 from core.utils.auth_utils import get_optional_user_id, verify_and_get_user_id_from_jwt, verify_sandbox_access, verify_sandbox_access_optional
 from core.services.supabase import DBConnection
-from core.utils.sandbox_utils import generate_unique_filename, get_uploads_directory
+from core.utils.sandbox_utils import generate_unique_filename, get_uploads_directory, normalize_preview_url
 from core.utils.file_name_generator import rename_ugly_files, has_ugly_name
 
 T = TypeVar('T')
@@ -28,6 +28,12 @@ T = TypeVar('T')
 RETRY_MAX_ATTEMPTS = 5
 RETRY_BASE_DELAY = 0.5  # seconds
 RETRY_MAX_DELAY = 8.0  # seconds
+
+# Cache whether basejump.account_user is available in this deployment.
+# Some self-hosted setups do not include Basejump, and repeated failed checks
+# add latency/noise on frequently polled endpoints.
+_basejump_account_user_available: Optional[bool] = None
+_basejump_unavailable_logged = False
 
 
 def is_retryable_error(error: Exception) -> bool:
@@ -101,6 +107,83 @@ async def retry_with_backoff(
     
     # Should never reach here, but just in case
     raise last_exception
+
+
+def _is_basejump_unavailable_error(error: Exception) -> bool:
+    error_text = str(error).lower()
+    return (
+        "basejump" in error_text
+        and (
+            "does not exist" in error_text
+            or "schema" in error_text
+            or "relation" in error_text
+            or "permission denied" in error_text
+        )
+    )
+
+
+async def _verify_project_account_access(
+    client,
+    *,
+    project_id: str,
+    account_id: Optional[str],
+    user_id: str,
+    context: str,
+) -> None:
+    """
+    Verify project access using basejump.account_user when available, with owner fallback.
+    """
+    global _basejump_account_user_available, _basejump_unavailable_logged
+
+    if not account_id:
+        return
+
+    # Fast path: account owner.
+    if account_id == user_id:
+        return
+
+    # If we already detected Basejump is unavailable, rely on owner-only check.
+    if _basejump_account_user_available is False:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    membership_verified = False
+    try:
+        account_user_result = (
+            await client
+            .schema("basejump")
+            .from_("account_user")
+            .select("account_role")
+            .eq("user_id", user_id)
+            .eq("account_id", account_id)
+            .execute()
+        )
+        membership_verified = bool(account_user_result.data and len(account_user_result.data) > 0)
+        _basejump_account_user_available = True
+    except Exception as access_err:
+        if _is_basejump_unavailable_error(access_err):
+            _basejump_account_user_available = False
+            if not _basejump_unavailable_logged:
+                logger.warning(
+                    f"Basejump account membership check unavailable; using owner-only fallback ({context})"
+                )
+                _basejump_unavailable_logged = True
+        else:
+            raise
+
+    if not membership_verified:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+
+async def _start_sandbox_in_background(sandbox_id: str, *, context: str) -> None:
+    """Best-effort background sandbox start with safe error handling."""
+    try:
+        await get_or_start_sandbox(sandbox_id)
+    except Exception as start_err:
+        error_text = str(start_err).lower()
+        if "state change in progress" in error_text:
+            logger.debug(f"Sandbox {sandbox_id} start already in progress ({context})")
+            return
+        logger.warning(f"Background sandbox start failed for {sandbox_id} ({context}): {start_err}")
 
 # Initialize shared resources
 router = APIRouter(tags=["sandbox"])
@@ -611,14 +694,13 @@ async def ensure_project_sandbox_active(
         if not user_id:
             logger.error(f"Authentication required for private project {project_id}")
             raise HTTPException(status_code=401, detail="Authentication required for this resource")
-            
-        account_id = project_data.get('account_id')
-        
-        if account_id:
-            account_user_result = await client.schema('basejump').from_('account_user').select('account_role').eq('user_id', user_id).eq('account_id', account_id).execute()
-            if not (account_user_result.data and len(account_user_result.data) > 0):
-                logger.error(f"User {user_id} not authorized to access project {project_id}")
-                raise HTTPException(status_code=403, detail="Not authorized to access this project")
+        await _verify_project_account_access(
+            client,
+            project_id=project_id,
+            account_id=project_data.get('account_id'),
+            user_id=user_id,
+            context="ensure-active",
+        )
     
     try:
         from core.resources import ResourceService, ResourceType
@@ -678,14 +760,13 @@ async def get_project_sandbox_details(
         if not user_id:
             logger.error(f"Authentication required for private project {project_id}")
             raise HTTPException(status_code=401, detail="Authentication required for this resource")
-            
-        account_id = project_data.get('account_id')
-        
-        if account_id:
-            account_user_result = await client.schema('basejump').from_('account_user').select('account_role').eq('user_id', user_id).eq('account_id', account_id).execute()
-            if not (account_user_result.data and len(account_user_result.data) > 0):
-                logger.error(f"User {user_id} not authorized to access project {project_id}")
-                raise HTTPException(status_code=403, detail="Not authorized to access this project")
+        await _verify_project_account_access(
+            client,
+            project_id=project_id,
+            account_id=project_data.get('account_id'),
+            user_id=user_id,
+            context="sandbox-details",
+        )
     
     try:
         from core.resources import ResourceService, ResourceType
@@ -706,8 +787,8 @@ async def get_project_sandbox_details(
             "sandbox_id": sandbox.id,
             "state": sandbox.state.value if hasattr(sandbox.state, 'value') else str(sandbox.state),
             "project_id": project_id,
-            "vnc_preview": config.get('vnc_preview'),
-            "sandbox_url": config.get('sandbox_url'),
+            "vnc_preview": normalize_preview_url(config.get('vnc_preview')),
+            "sandbox_url": normalize_preview_url(config.get('sandbox_url')),
         }
         
         if hasattr(sandbox, 'created_at') and sandbox.created_at:
@@ -901,27 +982,13 @@ async def get_project_sandbox_status(
     if not project_data.get('is_public'):
         if not user_id:
             raise HTTPException(status_code=401, detail="Authentication required")
-
-        account_id = project_data.get('account_id')
-        if account_id:
-            # Self-host deployments may not expose the basejump schema.
-            # Fall back to strict owner check (account_id == user_id) in that case.
-            membership_verified = False
-            try:
-                account_user_result = await client.schema('basejump').from_('account_user').select('account_role').eq('user_id', user_id).eq('account_id', account_id).execute()
-                membership_verified = bool(account_user_result.data and len(account_user_result.data) > 0)
-            except Exception as e:
-                err = str(e).lower()
-                if "basejump" in err:
-                    logger.warning(
-                        f"Basejump schema unavailable for sandbox status auth check; "
-                        f"falling back to owner check for project {project_id}: {e}"
-                    )
-                else:
-                    raise
-
-            if not membership_verified and account_id != user_id:
-                raise HTTPException(status_code=403, detail="Not authorized")
+        await _verify_project_account_access(
+            client,
+            project_id=project_id,
+            account_id=project_data.get('account_id'),
+            user_id=user_id,
+            context="sandbox-status",
+        )
 
     try:
         from core.resources import ResourceService
@@ -950,7 +1017,7 @@ async def get_project_sandbox_status(
         services_health = None
         health_data = None
         if daytona_state.lower() == 'started':
-            sandbox_url = config.get('sandbox_url')
+            sandbox_url = normalize_preview_url(config.get('sandbox_url'))
             if sandbox_url:
                 health_data = await fetch_sandbox_health(sandbox_url)
                 if health_data:
@@ -974,8 +1041,8 @@ async def get_project_sandbox_status(
             daytona_state=daytona_state,
             services_health=services_health,
             last_checked=datetime.now(timezone.utc).isoformat(),
-            vnc_preview=config.get('vnc_preview'),
-            sandbox_url=config.get('sandbox_url'),
+            vnc_preview=normalize_preview_url(config.get('vnc_preview')),
+            sandbox_url=normalize_preview_url(config.get('sandbox_url')),
             cpu=getattr(sandbox, 'cpu', None),
             memory=getattr(sandbox, 'memory', None),
             disk=getattr(sandbox, 'disk', None),
@@ -1022,22 +1089,13 @@ async def start_project_sandbox(
     account_id = project_data.get('account_id')
 
     if account_id:
-        membership_verified = False
-        try:
-            account_user_result = await client.schema('basejump').from_('account_user').select('account_role').eq('user_id', user_id).eq('account_id', account_id).execute()
-            membership_verified = bool(account_user_result.data and len(account_user_result.data) > 0)
-        except Exception as e:
-            err = str(e).lower()
-            if "basejump" in err:
-                logger.warning(
-                    f"Basejump schema unavailable for sandbox start auth check; "
-                    f"falling back to owner check for project {project_id}: {e}"
-                )
-            else:
-                raise
-
-        if not membership_verified and account_id != user_id:
-            raise HTTPException(status_code=403, detail="Not authorized")
+        await _verify_project_account_access(
+            client,
+            project_id=project_id,
+            account_id=account_id,
+            user_id=user_id,
+            context="sandbox-start",
+        )
 
     try:
         from core.resources import ResourceService
@@ -1089,7 +1147,9 @@ async def start_project_sandbox(
 
         if current_state in ('stopped', 'archived', 'archiving'):
             # Start asynchronously (non-blocking)
-            asyncio.create_task(get_or_start_sandbox(sandbox_id))
+            asyncio.create_task(
+                _start_sandbox_in_background(sandbox_id, context="project-sandbox-start")
+            )
 
             return {
                 "status": "starting",
@@ -1152,7 +1212,7 @@ async def get_sandbox_status_by_id(
         services_health = None
         health_data = None
         if daytona_state.lower() == 'started':
-            sandbox_url = config.get('sandbox_url')
+            sandbox_url = normalize_preview_url(config.get('sandbox_url'))
             if sandbox_url:
                 health_data = await fetch_sandbox_health(sandbox_url)
                 if health_data:
@@ -1173,8 +1233,8 @@ async def get_sandbox_status_by_id(
             daytona_state=daytona_state,
             services_health=services_health,
             last_checked=datetime.now(timezone.utc).isoformat(),
-            vnc_preview=config.get('vnc_preview'),
-            sandbox_url=config.get('sandbox_url'),
+            vnc_preview=normalize_preview_url(config.get('vnc_preview')),
+            sandbox_url=normalize_preview_url(config.get('sandbox_url')),
             cpu=getattr(sandbox, 'cpu', None),
             memory=getattr(sandbox, 'memory', None),
             disk=getattr(sandbox, 'disk', None),
@@ -1221,7 +1281,9 @@ async def start_sandbox_by_id(
 
         if current_state in ('stopped', 'archived', 'archiving'):
             # Start asynchronously (non-blocking)
-            asyncio.create_task(get_or_start_sandbox(sandbox_id))
+            asyncio.create_task(
+                _start_sandbox_in_background(sandbox_id, context="sandbox-start-by-id")
+            )
 
             return {
                 "status": "starting",
@@ -1264,9 +1326,13 @@ async def stop_project_sandbox(
     account_id = project_data.get('account_id')
 
     if account_id:
-        account_user_result = await client.schema('basejump').from_('account_user').select('account_role').eq('user_id', user_id).eq('account_id', account_id).execute()
-        if not (account_user_result.data and len(account_user_result.data) > 0):
-            raise HTTPException(status_code=403, detail="Not authorized")
+        await _verify_project_account_access(
+            client,
+            project_id=project_id,
+            account_id=account_id,
+            user_id=user_id,
+            context="sandbox-stop",
+        )
 
     try:
         from core.resources import ResourceService
@@ -1334,10 +1400,13 @@ async def create_file_in_project(
     
     # Verify user has access to this project
     if account_id:
-        account_user_result = await client.schema('basejump').from_('account_user').select('account_role').eq('user_id', user_id).eq('account_id', account_id).execute()
-        if not (account_user_result.data and len(account_user_result.data) > 0):
-            logger.error(f"User {user_id} not authorized to access project {project_id}")
-            raise HTTPException(status_code=403, detail="Not authorized to access this project")
+        await _verify_project_account_access(
+            client,
+            project_id=project_id,
+            account_id=account_id,
+            user_id=user_id,
+            context="project-file-upload",
+        )
     
     try:
         # Reuse existing sandbox creation/retrieval logic from agent_runs

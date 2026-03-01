@@ -775,6 +775,24 @@ export function SidebarThreadList({ mode }: SidebarThreadListProps) {
                   </div>
                 ))}
               </div>
+            ) : threadsError ? (
+              <div className="flex flex-col items-center justify-center py-12 px-6 text-center gap-3">
+                <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-muted/30 border border-border">
+                  <Frown className="h-6 w-6 text-muted-foreground/50" />
+                </div>
+                <p className="text-sm font-medium text-muted-foreground">
+                  Unable to load conversations
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    queryClient.invalidateQueries({ queryKey: threadKeys.all });
+                  }}
+                >
+                  Retry
+                </Button>
+              </div>
             ) : combinedThreads.length > 0 ? (
               <>
                 {Object.entries(groupedByDateThenProject).map(
@@ -1116,4 +1134,3 @@ export function SidebarThreadList({ mode }: SidebarThreadListProps) {
     </div>
   );
 }
-

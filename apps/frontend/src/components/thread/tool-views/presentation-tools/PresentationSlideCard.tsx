@@ -34,8 +34,16 @@ export function PresentationSlideCard({
 }: PresentationSlideCardProps) {
   const [containerRef, setContainerRef] = useState<HTMLDivElement | null>(null);
   const [scale, setScale] = useState(1);
+  const [useDirectPreview, setUseDirectPreview] = useState(false);
 
-  const slidePreviewUrl = useMemo(() => {
+  const directPreviewUrl = useMemo(() => {
+    if (!project?.sandbox?.sandbox_url) return null;
+    const url = constructHtmlPreviewUrl(project.sandbox.sandbox_url, slide.file_path);
+    if (!url) return null;
+    return refreshTimestamp ? withQueryParam(url, 't', refreshTimestamp) || url : url;
+  }, [project?.sandbox?.sandbox_url, slide.file_path, refreshTimestamp]);
+
+  const authenticatedPreviewUrl = useMemo(() => {
     if (!project?.sandbox?.sandbox_url) return null;
     const url = constructHtmlPreviewUrl(project.sandbox.sandbox_url, slide.file_path, {
       preferBackendProxy: true,
@@ -46,6 +54,17 @@ export function PresentationSlideCard({
     if (!url) return null;
     return refreshTimestamp ? withQueryParam(url, 't', refreshTimestamp) || url : url;
   }, [project?.sandbox?.sandbox_url, project?.sandbox?.id, slide.file_path, refreshTimestamp, accessToken]);
+
+  const slidePreviewUrl = useMemo(() => {
+    if (useDirectPreview) {
+      return directPreviewUrl;
+    }
+    return authenticatedPreviewUrl || directPreviewUrl;
+  }, [useDirectPreview, authenticatedPreviewUrl, directPreviewUrl]);
+
+  useEffect(() => {
+    setUseDirectPreview(false);
+  }, [slide.file_path, project?.sandbox?.id, refreshTimestamp]);
 
   useEffect(() => {
     if (!containerRef) return;
@@ -163,6 +182,11 @@ export function PresentationSlideCard({
               title={`Slide ${slide.number}: ${slide.title}`}
               className="border-0 rounded-xl"
               sandbox="allow-same-origin allow-scripts"
+              onError={() => {
+                if (!useDirectPreview && directPreviewUrl && directPreviewUrl !== authenticatedPreviewUrl) {
+                  setUseDirectPreview(true);
+                }
+              }}
               style={{
                 width: '1920px',
                 height: '1080px',

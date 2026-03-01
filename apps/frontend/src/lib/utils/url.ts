@@ -5,6 +5,24 @@ interface HtmlPreviewUrlOptions {
   inline?: boolean;
 }
 
+export function normalizeSandboxBaseUrl(sandboxUrl: string | undefined): string | undefined {
+  if (!sandboxUrl) return undefined;
+
+  try {
+    const parsed = new URL(sandboxUrl);
+    const hostname = parsed.hostname.toLowerCase();
+    const isDaytonaHost = hostname.includes('daytona');
+    const isProxyHost = hostname.includes('proxy');
+    if (parsed.protocol === 'http:' && (isDaytonaHost || isProxyHost)) {
+      parsed.protocol = 'https:';
+      return parsed.toString().replace(/\/+$/, '');
+    }
+    return sandboxUrl.replace(/\/+$/, '');
+  } catch {
+    return sandboxUrl.replace(/\/+$/, '');
+  }
+}
+
 export function extractSandboxIdFromSandboxUrl(sandboxUrl: string | undefined): string | undefined {
   if (!sandboxUrl) return undefined;
 
@@ -140,7 +158,8 @@ export function constructHtmlPreviewUrl(
   filePath: string | undefined,
   options?: HtmlPreviewUrlOptions,
 ): string | undefined {
-  if (!sandboxUrl || !filePath) {
+  const normalizedSandboxUrl = normalizeSandboxBaseUrl(sandboxUrl);
+  if (!normalizedSandboxUrl || !filePath) {
     return undefined;
   }
 
@@ -149,7 +168,7 @@ export function constructHtmlPreviewUrl(
     return undefined;
   }
 
-  const effectiveSandboxId = options?.sandboxId || extractSandboxIdFromSandboxUrl(sandboxUrl);
+  const effectiveSandboxId = options?.sandboxId || extractSandboxIdFromSandboxUrl(normalizedSandboxUrl);
 
   if (options?.preferBackendProxy && effectiveSandboxId) {
     const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || '';
@@ -187,7 +206,7 @@ export function constructHtmlPreviewUrl(
   // Join the segments back together with forward slashes
   const encodedPath = pathSegments.join('/');
 
-  return `${sandboxUrl}/${encodedPath}`;
+  return `${normalizedSandboxUrl}/${encodedPath}`;
 }
 
 /**

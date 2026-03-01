@@ -12,8 +12,12 @@ export const useThreadQuery = (threadId: string, options?) => {
     retry: (failureCount, error: any) => {
       const errorStr = error?.message?.toLowerCase() || '';
       const is404 = errorStr.includes('404') || errorStr.includes('not found');
-      if (is404 && failureCount < 5) {
-        return true;
+      const isAuthError = errorStr.includes('401') || errorStr.includes('403') || errorStr.includes('auth');
+      if (isAuthError) {
+        return false;
+      }
+      if (is404) {
+        return failureCount < 1;
       }
       return failureCount < 1;
     },
@@ -21,7 +25,7 @@ export const useThreadQuery = (threadId: string, options?) => {
       const errorStr = error?.message?.toLowerCase() || '';
       const is404 = errorStr.includes('404') || errorStr.includes('not found');
       if (is404) {
-        return Math.min(500 * (attemptIndex + 1), 2000);
+        return 800;
       }
       return 1000;
     },
@@ -50,6 +54,14 @@ export const useThreads = (options?: {
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
+    retry: (failureCount, error: any) => {
+      const message = (error?.message || '').toLowerCase();
+      if (message.includes('401') || message.includes('403') || message.includes('auth')) {
+        return false;
+      }
+      return failureCount < 2;
+    },
+    retryDelay: (attempt) => Math.min(1000 * (attempt + 1), 3000),
     // Keep showing current page data while loading next page
     placeholderData: keepPreviousData,
     enabled: options?.enabled !== false,
@@ -105,4 +117,3 @@ export const useThreadsForProject = (projectId: string, options?) => {
     error: threadsQuery.error,
   };
 };
-

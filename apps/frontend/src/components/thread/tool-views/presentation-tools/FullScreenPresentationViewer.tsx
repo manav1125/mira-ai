@@ -323,6 +323,11 @@ export function FullScreenPresentationViewer({
     const SlideIframeComponent = React.memo(({ slide }: { slide: SlideMetadata & { number: number } }) => {
       const [containerRef, setContainerRef] = useState<HTMLDivElement | null>(null);
       const [scale, setScale] = useState(1);
+      const [useDirectPreview, setUseDirectPreview] = useState(false);
+
+      useEffect(() => {
+        setUseDirectPreview(false);
+      }, [slide.file_path, refreshTimestamp]);
 
       useEffect(() => {
         if (containerRef) {
@@ -368,14 +373,16 @@ export function FullScreenPresentationViewer({
         );
       }
 
-      const slideUrl = constructHtmlPreviewUrl(sandboxUrl, slide.file_path);
+      const directSlideUrl = constructHtmlPreviewUrl(sandboxUrl, slide.file_path);
       const authenticatedSlideUrl = constructHtmlPreviewUrl(sandboxUrl, slide.file_path, {
         preferBackendProxy: true,
         sandboxId,
         accessToken: session?.access_token,
         inline: true,
       });
-      const effectiveSlideUrl = authenticatedSlideUrl || slideUrl;
+      const effectiveSlideUrl = useDirectPreview
+        ? directSlideUrl
+        : (authenticatedSlideUrl || directSlideUrl);
       if (!effectiveSlideUrl) {
         return (
           <div className="flex items-center justify-center h-full">
@@ -409,6 +416,11 @@ export function FullScreenPresentationViewer({
               title={`Slide ${slide.number}: ${slide.title}`}
               className="border-0 rounded-xl"
               sandbox="allow-same-origin allow-scripts allow-modals"
+              onError={() => {
+                if (!useDirectPreview && directSlideUrl && directSlideUrl !== authenticatedSlideUrl) {
+                  setUseDirectPreview(true);
+                }
+              }}
               style={{
                 width: '1920px',
                 height: '1080px',

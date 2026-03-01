@@ -10,8 +10,12 @@ export const useMessagesQuery = (threadId: string, options?) => {
     retry: (failureCount, error: any) => {
       const errorStr = error?.message?.toLowerCase() || '';
       const is404 = errorStr.includes('404') || errorStr.includes('not found');
-      if (is404 && failureCount < 5) {
-        return true;
+      const isAuthError = errorStr.includes('401') || errorStr.includes('403') || errorStr.includes('auth');
+      if (isAuthError) {
+        return false;
+      }
+      if (is404) {
+        return failureCount < 1;
       }
       return failureCount < 1;
     },
@@ -19,7 +23,7 @@ export const useMessagesQuery = (threadId: string, options?) => {
       const errorStr = error?.message?.toLowerCase() || '';
       const is404 = errorStr.includes('404') || errorStr.includes('not found');
       if (is404) {
-        return Math.min(500 * (attemptIndex + 1), 2000);
+        return 800;
       }
       return 1000;
     },
@@ -41,4 +45,3 @@ export const useAddUserMessageMutation = () => {
     }) => addUserMessage(threadId, message)
   });
 };
-

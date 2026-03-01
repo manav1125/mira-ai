@@ -27,9 +27,9 @@ export default function FilesPage() {
   const { navigateToPath, filesSubView, selectedFilePath } = useKortixComputerStore();
 
   // Fetch threads to build project list
-  const { data: threadsResponse, isLoading: isThreadsLoading } = useThreads({
+  const { data: threadsResponse, isLoading: isThreadsLoading, error: threadsError, refetch } = useThreads({
     page: 1,
-    limit: 200,
+    limit: 100,
   });
 
   // Build list of unique projects with sandboxes (keep full project data)
@@ -95,6 +95,21 @@ export default function FilesPage() {
     return (
       <div className="flex items-center justify-center h-[100dvh] bg-background">
         <KortixLoader size="medium" />
+      </div>
+    );
+  }
+
+  if (threadsError) {
+    return (
+      <div className="flex items-center justify-center h-[100dvh] bg-background">
+        <div className="text-center space-y-4">
+          <HardDrive className="h-12 w-12 mx-auto text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Couldn&apos;t Load Files</h2>
+          <p className="text-sm text-muted-foreground max-w-xs">
+            We couldn&apos;t load your project list. Retry once your connection stabilizes.
+          </p>
+          <Button onClick={() => refetch()}>Retry</Button>
+        </div>
       </div>
     );
   }

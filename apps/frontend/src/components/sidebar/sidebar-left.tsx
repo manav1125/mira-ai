@@ -173,23 +173,64 @@ export function SidebarLeft({
   const isAdmin = adminRoleData?.isAdmin ?? false;
 
   useEffect(() => {
+    let isMounted = true;
+
     const fetchUserData = async () => {
-      const supabase = createClient();
-      const { data } = await supabase.auth.getUser();
-      if (data.user) {
+      try {
+        const supabase = createClient();
+        const sessionResult = await supabase.auth.getSession();
+        const sessionUser = sessionResult.data.session?.user;
+        if (sessionUser && isMounted) {
+          setUser({
+            name:
+              sessionUser.user_metadata?.name ||
+              sessionUser.email?.split('@')[0] ||
+              'User',
+            email: sessionUser.email || '',
+            avatar: sessionUser.user_metadata?.avatar_url || '',
+            isAdmin,
+          });
+        }
+
+        // Keep profile hydration bounded to avoid indefinite "Loading..." state.
+        const userResult = await Promise.race([
+          supabase.auth.getUser(),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
+        ]);
+
+        if (!isMounted || !userResult || !('data' in userResult)) return;
+
+        const resolvedUser = userResult.data.user;
+        if (!resolvedUser) return;
+
         setUser({
           name:
-            data.user.user_metadata?.name ||
-            data.user.email?.split('@')[0] ||
+            resolvedUser.user_metadata?.name ||
+            resolvedUser.email?.split('@')[0] ||
             'User',
-          email: data.user.email || '',
-          avatar: data.user.user_metadata?.avatar_url || '', // User avatar (different from agent avatar)
-          isAdmin: isAdmin, // Use React Query cached value
+          email: resolvedUser.email || '',
+          avatar: resolvedUser.user_metadata?.avatar_url || '',
+          isAdmin,
         });
+        return;
+      } catch (error) {
+        console.error('Failed to load sidebar user profile:', error);
+      }
+
+      if (isMounted) {
+        setUser((prev) => ({
+          ...prev,
+          name: prev.name === 'Loading...' ? 'User' : prev.name,
+          email: prev.email === 'loading@example.com' ? '' : prev.email,
+          isAdmin,
+        }));
       }
     };
 
     fetchUserData();
+    return () => {
+      isMounted = false;
+    };
   }, [isAdmin]);
 
   useEffect(() => {

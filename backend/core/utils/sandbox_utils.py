@@ -3,6 +3,7 @@
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse, urlunparse
 from daytona_sdk import AsyncSandbox
 from core.utils.logger import logger
 from core.utils.files_utils import normalize_filename
@@ -68,3 +69,20 @@ def get_uploads_directory() -> str:
     """
     return "/workspace/uploads"
 
+
+def normalize_preview_url(url: Optional[str]) -> Optional[str]:
+    """
+    Ensure Daytona preview URLs use HTTPS to avoid mixed-content blocks and
+    Daytona warning interstitials in browser clients.
+    """
+    if not url:
+        return url
+
+    try:
+        parsed = urlparse(url)
+        hostname = (parsed.hostname or "").lower()
+        if parsed.scheme == "http" and ("daytona" in hostname or "proxy" in hostname):
+            return urlunparse(parsed._replace(scheme="https"))
+        return url
+    except Exception:
+        return url

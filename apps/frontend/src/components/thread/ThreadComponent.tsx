@@ -572,6 +572,20 @@ export function ThreadComponent({ projectId, threadId, compact = false, configur
     }
   }, [threadQuery.error, isNewThread, threadId, projectId, queryClient, setAgentRunId, setAgentStatus, router]);
 
+  const staleThreadRedirectedRef = useRef(false);
+  useEffect(() => {
+    if (staleThreadRedirectedRef.current || isNewThread || isShared) return;
+    if (!threadQuery.isError) return;
+
+    const errorMessage = String(threadQuery.error || '').toLowerCase();
+    const isNotFound = errorMessage.includes('404') || errorMessage.includes('not found');
+    if (!isNotFound) return;
+
+    staleThreadRedirectedRef.current = true;
+    toast.error('This chat is no longer available. Redirecting to dashboard.');
+    router.replace('/dashboard');
+  }, [threadQuery.isError, threadQuery.error, isNewThread, isShared, router]);
+
   useEffect(() => {
     const handleSandboxActive = (event: Event) => {
       const customEvent = event as CustomEvent<{ sandboxId: string; projectId: string }>;

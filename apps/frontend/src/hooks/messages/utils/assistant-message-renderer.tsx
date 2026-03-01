@@ -315,6 +315,7 @@ function SlideInlineThumbnail({
   const { session } = useAuth();
   const [iframeLoaded, setIframeLoaded] = React.useState(false);
   const [slideUrl, setSlideUrl] = React.useState<string | null>(null);
+  const [fallbackSlideUrl, setFallbackSlideUrl] = React.useState<string | null>(null);
   const [isLoadingMetadata, setIsLoadingMetadata] = React.useState(true);
 
   // Fetch metadata to get proper slide URL
@@ -334,13 +335,15 @@ function SlideInlineThumbnail({
         });
         const slideData = data.slides?.[slideInfo.slideNumber];
         if (slideData?.file_path) {
+          const directUrl = constructHtmlPreviewUrl(project.sandbox.sandbox_url, slideData.file_path);
           const url = constructHtmlPreviewUrl(project.sandbox.sandbox_url, slideData.file_path, {
             preferBackendProxy: true,
             sandboxId: project?.sandbox?.id,
             accessToken: session?.access_token,
             inline: true,
-          });
-          setSlideUrl(url);
+          }) || directUrl;
+          setSlideUrl(url || null);
+          setFallbackSlideUrl(directUrl && directUrl !== url ? directUrl : null);
         }
       } catch (e) {
         console.error('Failed to load slide metadata:', e);
@@ -399,6 +402,12 @@ function SlideInlineThumbnail({
             className="border-0 pointer-events-none"
             sandbox="allow-same-origin allow-scripts"
             onLoad={() => setIframeLoaded(true)}
+            onError={() => {
+              if (fallbackSlideUrl && slideUrl !== fallbackSlideUrl) {
+                setIframeLoaded(false);
+                setSlideUrl(fallbackSlideUrl);
+              }
+            }}
             style={{
               width: '1920px',
               height: '1080px',

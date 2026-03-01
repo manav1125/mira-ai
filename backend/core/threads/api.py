@@ -9,6 +9,7 @@ from core.utils.auth_utils import verify_and_get_user_id_from_jwt, verify_and_au
 from core.utils.logger import logger
 from core.sandbox.sandbox import create_sandbox, delete_sandbox
 from core.utils.config import config, EnvMode
+from core.utils.sandbox_utils import normalize_preview_url
 
 from core.api_models import CreateThreadResponse, MessageCreateRequest
 from core.services.supabase import DBConnection
@@ -580,6 +581,8 @@ async def create_thread(
             website_link = await sandbox.get_preview_link(8080)
             vnc_url = vnc_link.url if hasattr(vnc_link, 'url') else str(vnc_link).split("url='")[1].split("'")[0]
             website_url = website_link.url if hasattr(website_link, 'url') else str(website_link).split("url='")[1].split("'")[0]
+            vnc_url = normalize_preview_url(vnc_url)
+            website_url = normalize_preview_url(website_url)
             token = None
             if hasattr(vnc_link, 'token'):
                 token = vnc_link.token

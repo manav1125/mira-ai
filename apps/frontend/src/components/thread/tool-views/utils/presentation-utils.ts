@@ -1,7 +1,7 @@
 import { backendApi } from "@/lib/api-client";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
-import { extractSandboxIdFromSandboxUrl } from "@/lib/utils/url";
+import { extractSandboxIdFromSandboxUrl, normalizeSandboxBaseUrl } from "@/lib/utils/url";
 
 export enum DownloadFormat {
   PDF = 'pdf',
@@ -66,7 +66,8 @@ export async function fetchPresentationMetadata({
   const sanitizedName = sanitizePresentationName(presentationName);
   const errors: string[] = [];
   const candidates: Array<{ url: string; headers?: Record<string, string> }> = [];
-  const effectiveSandboxId = sandboxId || extractSandboxIdFromSandboxUrl(sandboxUrl);
+  const normalizedSandboxUrl = normalizeSandboxBaseUrl(sandboxUrl);
+  const effectiveSandboxId = sandboxId || extractSandboxIdFromSandboxUrl(normalizedSandboxUrl);
 
   const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || '';
   if (backendUrl && effectiveSandboxId) {
@@ -79,8 +80,6 @@ export async function fetchPresentationMetadata({
       const headers: Record<string, string> = {};
       if (accessToken) {
         headers.Authorization = `Bearer ${accessToken}`;
-        // Include token query param for iframe/fetch contexts where auth headers may be stripped.
-        apiUrl.searchParams.append('token', accessToken);
       }
       candidates.push({ url: apiUrl.toString(), headers });
     } catch (err) {
@@ -89,10 +88,9 @@ export async function fetchPresentationMetadata({
     }
   }
 
-  // Prefer backend file API whenever available. The direct sandbox URL may require
-  // separate Daytona auth and can redirect to HTML login pages.
-  if (sandboxUrl && candidates.length === 0) {
-    candidates.push({ url: `${sandboxUrl.replace(/\/+$/, '')}/presentations/${sanitizedName}/metadata.json` });
+  // Keep direct sandbox metadata URL as a fallback in case backend proxy fails.
+  if (normalizedSandboxUrl) {
+    candidates.push({ url: `${normalizedSandboxUrl}/presentations/${sanitizedName}/metadata.json` });
   }
 
   for (const candidate of candidates) {
@@ -230,13 +228,17 @@ export async function downloadPresentation(
   presentationName: string
 ): Promise<void> {
   try {
-    const endpoint = `${sandboxUrl}/presentation/convert-to-${format}`;
+    const normalizedSandboxUrl = normalizeSandboxBaseUrl(sandboxUrl);
+    if (!normalizedSandboxUrl) {
+      throw new Error('Invalid sandbox URL');
+    }
+    const endpoint = `${normalizedSandboxUrl}/presentation/convert-to-${format}`;
     console.log(`[downloadPresentation] Requesting download:`, {
       endpoint,
       format,
       presentationPath,
       presentationName,
-      sandboxUrl
+      sandboxUrl: normalizedSandboxUrl
     });
 
     const response = await fetch(endpoint, {
@@ -356,10 +358,14 @@ export async function downloadPresentation(
 
 export const handleGoogleAuth = async (presentationPath: string, sandboxUrl: string) => {
   try {
+    const normalizedSandboxUrl = normalizeSandboxBaseUrl(sandboxUrl);
+    if (!normalizedSandboxUrl) {
+      throw new Error('Invalid sandbox URL');
+    }
     // Store intent to upload to Google Slides after OAuth
     sessionStorage.setItem('google_slides_upload_intent', JSON.stringify({
       presentation_path: presentationPath,
-      sandbox_url: sandboxUrl
+      sandbox_url: normalizedSandboxUrl
     }));
     
     // Pass the current URL to the backend so it can be included in the OAuth state
@@ -389,13 +395,18 @@ export const handleGoogleSlidesUpload = async (sandboxUrl: string, presentationP
   }
   
   try {
+    const normalizedSandboxUrl = normalizeSandboxBaseUrl(sandboxUrl);
+    if (!normalizedSandboxUrl) {
+      throw new Error('Invalid sandbox URL');
+    }
+
     const supabase = createClient();
     const { data: { session } } = await supabase.auth.getSession();
     
     // Use proper backend API client with authentication and extended timeout for PPTX generation
     const response = await backendApi.post('/presentation-tools/convert-and-upload-to-slides', {
       presentation_path: presentationPath,
-      sandbox_url: sandboxUrl,
+      sandbox_url: normalizedSandboxUrl,
     }, {
       headers: {
         'Authorization': `Bearer ${session.access_token}`,
@@ -413,7 +424,7 @@ export const handleGoogleSlidesUpload = async (sandboxUrl: string, presentationP
       toast.info('Redirecting to Google authentication...', {
         duration: 3000,
       });
-      handleGoogleAuth(presentationPath, sandboxUrl);
+      handleGoogleAuth(presentationPath, normalizedSandboxUrl);
       return {
         success: false,
         redirected_to_auth: true,

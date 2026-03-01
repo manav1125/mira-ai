@@ -111,10 +111,10 @@ const SlideStreamPreview: React.FC<{
     isStreaming?: boolean;
 }> = ({ toolCall, project, onClick, isStreaming = false }) => {
     const { session } = useAuth();
-    const [slideUrl, setSlideUrl] = useState<string | null>(null);
+    const [slideFilePath, setSlideFilePath] = useState<string | null>(null);
     const [iframeLoaded, setIframeLoaded] = useState(false);
     const [isLoadingMetadata, setIsLoadingMetadata] = useState(true);
-    const [retryCount, setRetryCount] = useState(0);
+    const [useDirectPreview, setUseDirectPreview] = useState(false);
     const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const isEnsuringSandboxRef = useRef(false);
     const queryClient = useQueryClient();
@@ -154,6 +154,26 @@ const SlideStreamPreview: React.FC<{
     const presentationName = parsedArgs.presentation_name;
     const slideNumber = parsedArgs.slide_number;
     const slideTitle = parsedArgs.slide_title;
+
+    const directSlideUrl = useMemo(() => {
+        if (!project?.sandbox?.sandbox_url || !slideFilePath) return null;
+        return constructHtmlPreviewUrl(project.sandbox.sandbox_url, slideFilePath);
+    }, [project?.sandbox?.sandbox_url, slideFilePath]);
+
+    const authenticatedSlideUrl = useMemo(() => {
+        if (!project?.sandbox?.sandbox_url || !slideFilePath) return null;
+        return constructHtmlPreviewUrl(project.sandbox.sandbox_url, slideFilePath, {
+            preferBackendProxy: true,
+            sandboxId: project?.sandbox?.id,
+            accessToken: session?.access_token,
+            inline: true,
+        });
+    }, [project?.sandbox?.sandbox_url, project?.sandbox?.id, slideFilePath, session?.access_token]);
+
+    const slideUrl = useMemo(() => {
+        if (useDirectPreview) return directSlideUrl;
+        return authenticatedSlideUrl || directSlideUrl;
+    }, [useDirectPreview, authenticatedSlideUrl, directSlideUrl]);
 
     // Ensure sandbox is active when we have sandbox ID but no URL
     const ensureSandboxActive = useCallback(async () => {
@@ -219,6 +239,7 @@ const SlideStreamPreview: React.FC<{
         // Don't fetch during streaming - show shimmer instead
         if (!isCompleted || isStreaming) {
             setIsLoadingMetadata(false);
+            setSlideFilePath(null);
             return;
         }
 
@@ -228,9 +249,9 @@ const SlideStreamPreview: React.FC<{
 
         // Reset state when starting a new fetch
         setIsLoadingMetadata(true);
-        setSlideUrl(null);
+        setSlideFilePath(null);
         setIframeLoaded(false);
-        setRetryCount(0);
+        setUseDirectPreview(false);
 
         const fetchMetadata = async (retry: number = 0) => {
             try {
@@ -242,13 +263,7 @@ const SlideStreamPreview: React.FC<{
                 });
                 const slideData = data.slides?.[slideNumber];
                 if (slideData?.file_path) {
-                    const url = constructHtmlPreviewUrl(project.sandbox.sandbox_url, slideData.file_path, {
-                        preferBackendProxy: true,
-                        sandboxId: project?.sandbox?.id,
-                        accessToken: session?.access_token,
-                        inline: true,
-                    });
-                    setSlideUrl(url);
+                    setSlideFilePath(slideData.file_path);
                     setIsLoadingMetadata(false);
                     return;
                 }
@@ -256,7 +271,6 @@ const SlideStreamPreview: React.FC<{
                 // Retry if not found yet (slide might still be generating)
                 if (retry < 20) {
                     const delay = Math.min(1000 * Math.pow(1.3, retry), 3000);
-                    setRetryCount(retry + 1);
                     retryTimeoutRef.current = setTimeout(() => fetchMetadata(retry + 1), delay);
                 } else {
                     setIsLoadingMetadata(false);
@@ -265,7 +279,6 @@ const SlideStreamPreview: React.FC<{
                 // Retry on error
                 if (retry < 20) {
                     const delay = Math.min(1000 * Math.pow(1.3, retry), 3000);
-                    setRetryCount(retry + 1);
                     retryTimeoutRef.current = setTimeout(() => fetchMetadata(retry + 1), delay);
                 } else {
                     setIsLoadingMetadata(false);
@@ -338,6 +351,11 @@ const SlideStreamPreview: React.FC<{
                         className="border-0 pointer-events-none"
                         sandbox="allow-same-origin allow-scripts"
                         onLoad={() => setIframeLoaded(true)}
+                        onError={() => {
+                            if (!useDirectPreview && directSlideUrl && directSlideUrl !== authenticatedSlideUrl) {
+                                setUseDirectPreview(true);
+                            }
+                        }}
                         style={{
                             width: '1920px',
                             height: '1080px',
