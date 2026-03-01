@@ -108,7 +108,7 @@ export async function fetchPresentationMetadata({
   let effectiveAccessToken = accessToken;
 
   if (!effectiveAccessToken) {
-    effectiveAccessToken = (await getAuthTokenWithTimeout(3000)) || undefined;
+    effectiveAccessToken = (await getAuthTokenWithTimeout(8000)) || undefined;
   }
 
   const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || '';
@@ -482,7 +482,7 @@ export const handleGoogleSlidesUpload = async (sandboxUrl: string, presentationP
       throw new Error('Invalid sandbox URL');
     }
 
-    const accessToken = await getAuthTokenWithTimeout(3500);
+    const accessToken = await getAuthTokenWithTimeout(8000);
     if (!accessToken) {
       throw new Error('Authentication required');
     }

@@ -204,7 +204,7 @@ export function SidebarLeft({
 
         const sessionResult = await Promise.race([
           supabase.auth.getSession(),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 3500)),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
         ]);
         const sessionUser =
           sessionResult && 'data' in sessionResult
@@ -225,7 +225,7 @@ export function SidebarLeft({
         // Keep profile hydration bounded to avoid indefinite "Loading..." state.
         const userResult = await Promise.race([
           supabase.auth.getUser(),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000)),
         ]);
 
         if (!isMounted) return;

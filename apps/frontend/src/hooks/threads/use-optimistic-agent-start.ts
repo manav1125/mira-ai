@@ -197,7 +197,7 @@ export function useOptimisticAgentStart(
           // The ThreadComponent will adopt this connection when it mounts
           try {
             const preconnectService = getStreamPreconnectService();
-            const getAuthToken = async () => getAuthTokenWithTimeout(3500);
+            const getAuthToken = async () => getAuthTokenWithTimeout(8000);
             
             storePreconnectInfo(response.agent_run_id, threadId);
             await preconnectService.preconnect(response.agent_run_id, threadId, getAuthToken);

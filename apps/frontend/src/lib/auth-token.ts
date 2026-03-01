@@ -290,5 +290,16 @@ export async function getAuthTokenWithTimeout(timeoutMs: number = DEFAULT_AUTH_T
     return token;
   }
 
+  // One extended retry for cold starts / delayed session refreshes.
+  const extendedTimeout = Math.max(8000, timeoutMs);
+  if (extendedTimeout !== timeoutMs) {
+    const extendedSession = await getAuthSessionWithTimeout(extendedTimeout);
+    const extendedToken = extendedSession?.access_token || null;
+    if (extendedToken && isTokenFresh(extendedToken)) {
+      setCachedToken(extendedToken);
+      return extendedToken;
+    }
+  }
+
   return null;
 }

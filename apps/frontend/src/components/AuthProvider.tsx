@@ -42,7 +42,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       try {
         const sessionResult = await Promise.race([
           supabase.auth.getSession(),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 3500)),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
         ]);
 
         if (!sessionResult || !('data' in sessionResult)) {

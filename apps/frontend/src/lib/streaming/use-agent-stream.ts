@@ -303,7 +303,7 @@ export function useAgentStream(
   }, []);
   
   const getAuthToken = useCallback(async (): Promise<string | null> => {
-    return getAuthTokenWithTimeout(3500);
+    return getAuthTokenWithTimeout(8000);
   }, []);
   
   const handleStreamMessage = useCallback((rawData: string) => {

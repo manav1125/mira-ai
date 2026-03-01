@@ -41,7 +41,7 @@ async function makeRequest<T = any>(
       }
     }, timeout);
 
-    const accessToken = await getAuthTokenWithTimeout(
+    let accessToken = await getAuthTokenWithTimeout(
       Math.min(SESSION_FETCH_TIMEOUT_MS, Math.max(1500, Math.floor(timeout / 2)))
     );
 
@@ -67,11 +67,31 @@ async function makeRequest<T = any>(
     // Note: X-Refresh-Token was removed to reduce header size and prevent HTTP 431 errors.
     // The backend handles token refresh via Supabase directly.
 
-    const response = await fetch(url, {
-      ...fetchOptions,
-      headers,
-      signal: controller.signal,
-    });
+    const performFetch = async () =>
+      fetch(url, {
+        ...fetchOptions,
+        headers,
+        signal: controller.signal,
+      });
+
+    let response = await performFetch();
+
+    // If auth was missing/stale, retry once with a refreshed token.
+    if (response.status === 401) {
+      const refreshedToken = await getAuthTokenWithTimeout(Math.min(timeout, 9000));
+      const hasAuthAfterFirstAttempt = Object.keys(headers).some(
+        (headerName) => headerName.toLowerCase() === 'authorization'
+      );
+      if (refreshedToken && refreshedToken !== accessToken) {
+        headers['Authorization'] = `Bearer ${refreshedToken}`;
+        accessToken = refreshedToken;
+        response = await performFetch();
+      } else if (refreshedToken && !hasAuthAfterFirstAttempt) {
+        headers['Authorization'] = `Bearer ${refreshedToken}`;
+        accessToken = refreshedToken;
+        response = await performFetch();
+      }
+    }
 
     if (timeoutId) {
       clearTimeout(timeoutId);
