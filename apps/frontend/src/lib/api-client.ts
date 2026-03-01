@@ -16,6 +16,27 @@ export interface ApiResponse<T = any> {
   success: boolean;
 }
 
+const SESSION_FETCH_TIMEOUT_MS = 4000;
+
+async function getSessionWithTimeout(timeoutMs: number) {
+  const supabase = createClient();
+
+  try {
+    const sessionResult = await Promise.race([
+      supabase.auth.getSession(),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+    ]);
+
+    if (!sessionResult || !('data' in sessionResult)) {
+      return null;
+    }
+
+    return sessionResult.data?.session || null;
+  } catch {
+    return null;
+  }
+}
+
 async function makeRequest<T = any>(
   url: string,
   options: RequestInit & ApiClientOptions = {}
@@ -39,8 +60,9 @@ async function makeRequest<T = any>(
       }
     }, timeout);
 
-    const supabase = createClient();
-    const { data: { session } } = await supabase.auth.getSession();
+    const session = await getSessionWithTimeout(
+      Math.min(SESSION_FETCH_TIMEOUT_MS, Math.max(1500, Math.floor(timeout / 2)))
+    );
 
     // Don't set Content-Type for FormData - browser will set it automatically with boundary
     const isFormData = fetchOptions.body instanceof FormData;

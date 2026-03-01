@@ -178,8 +178,14 @@ export function SidebarLeft({
     const fetchUserData = async () => {
       try {
         const supabase = createClient();
-        const sessionResult = await supabase.auth.getSession();
-        const sessionUser = sessionResult.data.session?.user;
+        const sessionResult = await Promise.race([
+          supabase.auth.getSession(),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 3500)),
+        ]);
+        const sessionUser =
+          sessionResult && 'data' in sessionResult
+            ? sessionResult.data.session?.user
+            : null;
         if (sessionUser && isMounted) {
           setUser({
             name:

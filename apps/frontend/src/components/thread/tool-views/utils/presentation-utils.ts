@@ -21,11 +21,48 @@ interface FetchPresentationMetadataOptions {
   signal?: AbortSignal;
 }
 
+const PRESENTATION_METADATA_TIMEOUT_MS = 12000;
+
 function getErrorSnippet(text: string): string {
   return text
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 140);
+}
+
+function redactSensitiveUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    for (const key of ['token', 'access_token', 'authorization']) {
+      if (parsed.searchParams.has(key)) {
+        parsed.searchParams.set(key, '[redacted]');
+      }
+    }
+    return parsed.toString();
+  } catch {
+    return url.replace(/([?&](?:token|access_token|authorization)=)[^&]+/gi, '$1[redacted]');
+  }
+}
+
+function withCacheBust(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.set('t', `${Date.now()}`);
+    return parsed.toString();
+  } catch {
+    return `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`;
+  }
+}
+
+function shouldUseDirectSandboxFallback(sandboxUrl: string | undefined): boolean {
+  if (!sandboxUrl) return false;
+  try {
+    const hostname = new URL(sandboxUrl).hostname.toLowerCase();
+    // Daytona preview hosts often return HTML warning/interstitial content for direct fetches.
+    return !(hostname.includes('daytona') || hostname.includes('proxy'));
+  } catch {
+    return true;
+  }
 }
 
 async function parseJsonResponse(response: Response, sourceUrl: string): Promise<any> {
@@ -68,6 +105,22 @@ export async function fetchPresentationMetadata({
   const candidates: Array<{ url: string; headers?: Record<string, string> }> = [];
   const normalizedSandboxUrl = normalizeSandboxBaseUrl(sandboxUrl);
   const effectiveSandboxId = sandboxId || extractSandboxIdFromSandboxUrl(normalizedSandboxUrl);
+  let effectiveAccessToken = accessToken;
+
+  if (!effectiveAccessToken) {
+    try {
+      const supabase = createClient();
+      const sessionResult = await Promise.race([
+        supabase.auth.getSession(),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
+      ]);
+      if (sessionResult && 'data' in sessionResult) {
+        effectiveAccessToken = sessionResult.data.session?.access_token || undefined;
+      }
+    } catch {
+      // Ignore auth retrieval errors and continue with existing candidates.
+    }
+  }
 
   const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || '';
   if (backendUrl && effectiveSandboxId) {
@@ -77,51 +130,91 @@ export async function fetchPresentationMetadata({
         : `${typeof window !== 'undefined' ? window.location.origin : ''}${backendUrl.startsWith('/') ? '' : '/'}${backendUrl}`;
       const apiUrl = new URL(`${normalizedBackendUrl.replace(/\/+$/, '')}/sandboxes/${effectiveSandboxId}/files/content`);
       apiUrl.searchParams.append('path', `/workspace/presentations/${sanitizedName}/metadata.json`);
-      const headers: Record<string, string> = {};
-      if (accessToken) {
-        headers.Authorization = `Bearer ${accessToken}`;
+      apiUrl.searchParams.append('inline', 'true');
+      // Query token avoids CORS preflight/header stripping issues in iframe/fetch contexts.
+      if (effectiveAccessToken) {
+        apiUrl.searchParams.append('token', effectiveAccessToken);
       }
-      candidates.push({ url: apiUrl.toString(), headers });
+      candidates.push({ url: apiUrl.toString() });
+
+      // Keep an Authorization-header fallback for environments where query token is disabled.
+      if (effectiveAccessToken) {
+        const headerAuthUrl = new URL(apiUrl.toString());
+        headerAuthUrl.searchParams.delete('token');
+        candidates.push({
+          url: headerAuthUrl.toString(),
+          headers: { Authorization: `Bearer ${effectiveAccessToken}` },
+        });
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       errors.push(`invalid backend URL (${backendUrl}): ${message}`);
     }
   }
 
-  // Keep direct sandbox metadata URL as a fallback in case backend proxy fails.
-  if (normalizedSandboxUrl) {
+  // Keep direct sandbox metadata URL only for non-Daytona hosts.
+  if (normalizedSandboxUrl && (candidates.length === 0 || shouldUseDirectSandboxFallback(normalizedSandboxUrl))) {
     candidates.push({ url: `${normalizedSandboxUrl}/presentations/${sanitizedName}/metadata.json` });
   }
 
-  for (const candidate of candidates) {
-    const requestUrl = `${candidate.url}${candidate.url.includes('?') ? '&' : '?'}t=${Date.now()}`;
+  const executeCandidate = async (candidate: { url: string; headers?: Record<string, string> }) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), PRESENTATION_METADATA_TIMEOUT_MS);
+    let abortedByParent = false;
+
+    const abortFromParent = () => {
+      abortedByParent = true;
+      controller.abort();
+    };
+
+    if (signal) {
+      if (signal.aborted) {
+        abortFromParent();
+      } else {
+        signal.addEventListener('abort', abortFromParent, { once: true });
+      }
+    }
+
     try {
-      const response = await fetch(requestUrl, {
-        cache: 'no-cache',
-        signal,
-        headers: {
-          'Cache-Control': 'no-cache',
-          ...(candidate.headers || {}),
-        },
+      const response = await fetch(withCacheBust(candidate.url), {
+        cache: 'no-store',
+        signal: controller.signal,
+        headers: candidate.headers,
       });
+      return response;
+    } finally {
+      clearTimeout(timeout);
+      if (signal) {
+        signal.removeEventListener('abort', abortFromParent);
+      }
+      if (abortedByParent) {
+        throw new Error('Request cancelled');
+      }
+    }
+  };
+
+  for (const candidate of candidates) {
+    const safeUrl = redactSensitiveUrl(candidate.url);
+    try {
+      const response = await executeCandidate(candidate);
 
       if (!response.ok) {
         const errText = await response.text().catch(() => '');
-        errors.push(`${candidate.url} -> HTTP ${response.status}${errText ? ` (${getErrorSnippet(errText)})` : ''}`);
+        errors.push(`${safeUrl} -> HTTP ${response.status}${errText ? ` (${getErrorSnippet(errText)})` : ''}`);
         continue;
       }
 
-      const parsed = await parseJsonResponse(response, candidate.url);
+      const parsed = await parseJsonResponse(response, safeUrl);
       if (!isPresentationMetadata(parsed)) {
         const detail = typeof parsed?.detail === 'string' ? parsed.detail : 'unexpected JSON shape';
-        errors.push(`${candidate.url} -> invalid metadata payload (${detail})`);
+        errors.push(`${safeUrl} -> invalid metadata payload (${detail})`);
         continue;
       }
 
       return parsed;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      errors.push(`${candidate.url} -> ${message}`);
+      errors.push(`${safeUrl} -> ${message}`);
     }
   }
 

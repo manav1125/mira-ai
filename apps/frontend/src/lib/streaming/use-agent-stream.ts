@@ -303,7 +303,14 @@ export function useAgentStream(
   const getAuthToken = useCallback(async (): Promise<string | null> => {
     const { createClient } = await import('@/lib/supabase/client');
     const supabase = createClient();
-    const { data: { session } } = await supabase.auth.getSession();
+    const sessionResult = await Promise.race([
+      supabase.auth.getSession(),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 3500)),
+    ]);
+    if (!sessionResult || !('data' in sessionResult)) {
+      return null;
+    }
+    const session = sessionResult.data?.session;
     return session?.access_token || null;
   }, []);
   

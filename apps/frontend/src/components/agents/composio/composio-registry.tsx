@@ -321,7 +321,9 @@ export const ComposioRegistry: React.FC<ComposioRegistryProps> = ({
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
-    isError
+    isError,
+    error: toolkitsError,
+    refetch: refetchToolkits,
   } = useComposioToolkitsInfinite(search, selectedCategory);
   const { data: profiles, isLoading: isLoadingProfiles } = useComposioProfiles();
 
@@ -671,6 +673,19 @@ export const ComposioRegistry: React.FC<ComposioRegistryProps> = ({
                       {Array.from({ length: 12 }).map((_, i) => (
                         <AppCardSkeleton key={i} />
                       ))}
+                    </div>
+                  ) : isError ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center border border-border rounded-2xl">
+                      <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-4">
+                        <Search className="h-8 w-8 text-muted-foreground" />
+                      </div>
+                      <h3 className="text-lg font-medium mb-2">Couldn&apos;t load integrations</h3>
+                      <p className="text-sm text-muted-foreground mb-4 max-w-xl">
+                        {toolkitsError instanceof Error ? toolkitsError.message : 'The integrations registry timed out. Please retry.'}
+                      </p>
+                      <Button variant="outline" onClick={() => refetchToolkits()}>
+                        Retry
+                      </Button>
                     </div>
                   ) : filteredToolkits.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12 text-center">

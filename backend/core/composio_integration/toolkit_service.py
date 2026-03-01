@@ -78,6 +78,8 @@ class ToolsListResponse(BaseModel):
 class ToolkitService:
     _toolkits_cache: Dict[str, tuple[float, Dict[str, Any]]] = {}
     _toolkits_cache_ttl_seconds: int = 60
+    _last_successful_toolkits_result: Optional[Dict[str, Any]] = None
+    _toolkits_request_timeout_seconds: int = 15
 
     def __init__(self, api_key: Optional[str] = None):
         self.client = ComposioClient.get_client(api_key)
@@ -118,12 +120,14 @@ class ToolkitService:
             # expensive Composio requests that can slow down the whole app.
             cacheable = cursor is None
             cache_key = f"limit={limit}|category={category or ''}|cursor="
+            stale_cache_result: Optional[Dict[str, Any]] = None
             if cacheable:
                 cached = self.__class__._toolkits_cache.get(cache_key)
                 if cached:
                     cached_at, cached_result = cached
                     if time.monotonic() - cached_at < self.__class__._toolkits_cache_ttl_seconds:
                         return cached_result
+                    stale_cache_result = cached_result
 
             params = {
                 "limit": limit,
@@ -136,7 +140,23 @@ class ToolkitService:
                 params["category"] = category
 
             # Composio SDK is sync; run in thread so we don't block the async event loop.
-            toolkits_response = await asyncio.to_thread(self.client.toolkits.list, **params)
+            try:
+                toolkits_response = await asyncio.wait_for(
+                    asyncio.to_thread(self.client.toolkits.list, **params),
+                    timeout=self.__class__._toolkits_request_timeout_seconds,
+                )
+            except asyncio.TimeoutError as timeout_error:
+                fallback_result = stale_cache_result or self.__class__._last_successful_toolkits_result
+                if fallback_result:
+                    logger.warning(
+                        "Composio toolkit list timed out; using cached fallback",
+                        timeout_seconds=self.__class__._toolkits_request_timeout_seconds,
+                        has_stale_key_cache=bool(stale_cache_result),
+                    )
+                    return fallback_result
+                raise RuntimeError(
+                    f"Composio toolkit request timed out after {self.__class__._toolkits_request_timeout_seconds}s"
+                ) from timeout_error
             
             if hasattr(toolkits_response, '__dict__'):
                 response_data = toolkits_response.__dict__
@@ -219,11 +239,17 @@ class ToolkitService:
                 if len(self.__class__._toolkits_cache) > 30:
                     self.__class__._toolkits_cache.clear()
                 self.__class__._toolkits_cache[cache_key] = (time.monotonic(), result)
+            self.__class__._last_successful_toolkits_result = result
             
             logger.debug(f"Successfully fetched {len(toolkits)} toolkits with OAUTH2 in both auth schemes" + (f" for category {category}" if category else ""))
             return result
             
         except Exception as e:
+            fallback_result = stale_cache_result if 'stale_cache_result' in locals() else None
+            fallback_result = fallback_result or self.__class__._last_successful_toolkits_result
+            if fallback_result:
+                logger.warning("Composio toolkit fetch failed; serving cached fallback", error=str(e))
+                return fallback_result
             logger.error(f"Failed to list toolkits: {e}", exc_info=True)
             raise
     

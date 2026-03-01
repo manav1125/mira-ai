@@ -851,6 +851,18 @@ async def require_agent_access(
 # Sandbox Authorization Functions
 # ============================================================================
 
+def _is_basejump_join_unavailable(error: Exception) -> bool:
+    error_text = str(error).lower()
+    return (
+        "basejump" in error_text
+        and (
+            "does not exist" in error_text
+            or "relation" in error_text
+            or "schema" in error_text
+            or "permission denied" in error_text
+        )
+    )
+
 async def verify_sandbox_access(client, sandbox_id: str, user_id: str):
     """
     Verify that a user has access to a specific sandbox by checking resource ownership and project permissions.
@@ -898,7 +910,39 @@ async def verify_sandbox_access(client, sandbox_id: str, user_id: str):
     WHERE r.external_id = :sandbox_id AND r.type = 'sandbox'
     """
     
-    result = await execute_one(sql, {"sandbox_id": sandbox_id, "user_id": user_id})
+    try:
+        result = await execute_one(sql, {"sandbox_id": sandbox_id, "user_id": user_id})
+    except Exception as access_err:
+        if not _is_basejump_join_unavailable(access_err):
+            raise
+
+        # Fallback for deployments without Basejump membership tables.
+        fallback_sql = """
+        SELECT 
+            r.id as resource_id,
+            r.account_id as resource_account_id,
+            r.config as resource_config,
+            p.project_id,
+            p.account_id as project_account_id,
+            p.is_public,
+            p.name as project_name,
+            p.description as project_description,
+            p.sandbox_resource_id,
+            p.created_at as project_created_at,
+            p.updated_at as project_updated_at,
+            COALESCE(ur.role::text, '') as user_role,
+            CASE WHEN r.account_id = :user_id THEN true ELSE false END as is_resource_team_member,
+            CASE WHEN p.account_id = :user_id THEN true ELSE false END as is_project_team_member
+        FROM resources r
+        LEFT JOIN projects p ON p.sandbox_resource_id = r.id
+        LEFT JOIN user_roles ur ON ur.user_id = :user_id
+        WHERE r.external_id = :sandbox_id AND r.type = 'sandbox'
+        """
+        structlog.get_logger().warning(
+            "Basejump account_user unavailable for sandbox access; using owner-only fallback",
+            sandbox_id=sandbox_id,
+        )
+        result = await execute_one(fallback_sql, {"sandbox_id": sandbox_id, "user_id": user_id})
     
     if not result:
         raise HTTPException(status_code=404, detail="Sandbox not found - no resource exists for this sandbox")
@@ -1018,7 +1062,38 @@ async def verify_sandbox_access_optional(client, sandbox_id: str, user_id: Optio
         LEFT JOIN basejump.account_user au_project ON au_project.account_id = p.account_id AND au_project.user_id = :user_id
         WHERE r.external_id = :sandbox_id AND r.type = 'sandbox'
         """
-        result = await execute_one(sql, {"sandbox_id": sandbox_id, "user_id": user_id})
+        try:
+            result = await execute_one(sql, {"sandbox_id": sandbox_id, "user_id": user_id})
+        except Exception as access_err:
+            if not _is_basejump_join_unavailable(access_err):
+                raise
+
+            fallback_sql = """
+            SELECT 
+                r.id as resource_id,
+                r.account_id as resource_account_id,
+                r.config as resource_config,
+                p.project_id,
+                p.account_id as project_account_id,
+                p.is_public,
+                p.name as project_name,
+                p.description as project_description,
+                p.sandbox_resource_id,
+                p.created_at as project_created_at,
+                p.updated_at as project_updated_at,
+                COALESCE(ur.role::text, '') as user_role,
+                CASE WHEN r.account_id = :user_id THEN true ELSE false END as is_resource_team_member,
+                CASE WHEN p.account_id = :user_id THEN true ELSE false END as is_project_team_member
+            FROM resources r
+            LEFT JOIN projects p ON p.sandbox_resource_id = r.id
+            LEFT JOIN user_roles ur ON ur.user_id = :user_id
+            WHERE r.external_id = :sandbox_id AND r.type = 'sandbox'
+            """
+            structlog.get_logger().warning(
+                "Basejump account_user unavailable for optional sandbox access; using owner-only fallback",
+                sandbox_id=sandbox_id,
+            )
+            result = await execute_one(fallback_sql, {"sandbox_id": sandbox_id, "user_id": user_id})
     else:
         # Simple query for anonymous users - only need resource and public status
         sql = """

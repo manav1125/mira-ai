@@ -29,7 +29,7 @@ export const useComposioCategories = () => {
       return result;
     },
     staleTime: 10 * 60 * 1000,
-    retry: 2,
+    retry: 1,
   });
 };
 
@@ -41,7 +41,7 @@ export const useComposioToolkits = (search?: string, category?: string) => {
       return result;
     },
     staleTime: 5 * 60 * 1000, 
-    retry: 2,
+    retry: 1,
   });
 };
 
@@ -57,7 +57,7 @@ export const useComposioToolkitsInfinite = (search?: string, category?: string) 
       return lastPage.next_cursor || undefined;
     },
     staleTime: 5 * 60 * 1000,
-    retry: 2,
+    retry: 1,
   });
 };
 
@@ -135,7 +135,7 @@ export const useComposioToolkitDetails = (toolkitSlug: string, options?: { enabl
     },
     enabled: options?.enabled !== undefined ? options.enabled : !!toolkitSlug,
     staleTime: 10 * 60 * 1000,
-    retry: 2,
+    retry: 1,
   });
 };
 
@@ -148,7 +148,7 @@ export const useComposioTools = (toolkitSlug: string, options?: { enabled?: bool
     },
     enabled: (options?.enabled ?? true) && !!toolkitSlug,
     staleTime: 10 * 60 * 1000,
-    retry: 2,
+    retry: 1,
   });
 };
 

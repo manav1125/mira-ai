@@ -1,5 +1,7 @@
 import { backendApi } from '@/lib/api-client';
 
+const COMPOSIO_REQUEST_TIMEOUT_MS = 12000;
+
 export interface ComposioCategory {
   id: string;
   name: string;
@@ -210,6 +212,7 @@ export const composioApi = {
       '/composio/categories',
       {
         errorContext: { operation: 'load categories', resource: 'Composio categories' },
+        timeout: COMPOSIO_REQUEST_TIMEOUT_MS,
       }
     );
 
@@ -243,6 +246,7 @@ export const composioApi = {
       `/composio/toolkits${params.toString() ? `?${params.toString()}` : ''}`,
       {
         errorContext: { operation: 'load toolkits', resource: 'Composio toolkits' },
+        timeout: COMPOSIO_REQUEST_TIMEOUT_MS,
       }
     );
 
@@ -268,6 +272,7 @@ export const composioApi = {
       `/composio/profiles${queryParams.toString() ? `?${queryParams.toString()}` : ''}`,
       {
         errorContext: { operation: 'load profiles', resource: 'Composio profiles' },
+        timeout: COMPOSIO_REQUEST_TIMEOUT_MS,
       }
     );
 
@@ -336,7 +341,16 @@ export const composioApi = {
   },
 
   async getToolkitIcon(toolkitSlug: string): Promise<{ success: boolean; icon_url?: string }> {
-    const response = await backendApi.get<{ success: boolean; toolkit_slug: string; icon_url?: string; message?: string }>(`/composio/toolkits/${toolkitSlug}/icon`);
+    const response = await backendApi.get<{ success: boolean; toolkit_slug: string; icon_url?: string; message?: string }>(
+      `/composio/toolkits/${toolkitSlug}/icon`,
+      {
+        showErrors: false,
+        timeout: 8000,
+      }
+    );
+    if (!response.success || !response.data) {
+      return { success: false };
+    }
     return {
       success: response.data.success,
       icon_url: response.data.icon_url
@@ -349,8 +363,16 @@ export const composioApi = {
       { toolkit_slugs: toolkitSlugs },
       {
         errorContext: { operation: 'get toolkit icons batch', resource: 'Composio toolkit icons' },
+        timeout: 10000,
+        showErrors: false,
       }
     );
+    if (!response.success || !response.data) {
+      return {
+        success: false,
+        icons: {},
+      };
+    }
     return {
       success: response.data.success,
       icons: response.data.icons || {}
