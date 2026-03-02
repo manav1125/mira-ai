@@ -22,6 +22,7 @@ from core.utils.auth_utils import get_optional_user_id, verify_and_get_user_id_f
 from core.services.supabase import DBConnection
 from core.utils.sandbox_utils import generate_unique_filename, get_uploads_directory, normalize_preview_url
 from core.utils.file_name_generator import rename_ugly_files, has_ugly_name
+from core.utils.files_utils import normalize_path as normalize_files_path
 
 T = TypeVar('T')
 
@@ -218,24 +219,26 @@ def normalize_path(path: str) -> str:
     try:
         # First, ensure the path is properly URL-decoded
         decoded_path = urllib.parse.unquote(path)
-        
+
         # Handle Unicode escape sequences like \u0308
         try:
             # Replace Python-style Unicode escapes (\u0308) with actual characters
             # This handles cases where the Unicode escape sequence is part of the URL
             import re
             unicode_pattern = re.compile(r'\\u([0-9a-fA-F]{4})')
-            
+
             def replace_unicode(match):
                 hex_val = match.group(1)
                 return chr(int(hex_val, 16))
-            
+
             decoded_path = unicode_pattern.sub(replace_unicode, decoded_path)
         except Exception as unicode_err:
             logger.warning(f"Error processing Unicode escapes in path '{path}': {str(unicode_err)}")
-        
-        logger.debug(f"Normalized path from '{path}' to '{decoded_path}'")
-        return decoded_path
+
+        # Keep normalization consistent with upload-time filename/path normalization.
+        normalized_path = normalize_files_path(decoded_path)
+        logger.debug(f"Normalized path from '{path}' to '{normalized_path}'")
+        return normalized_path
     except Exception as e:
         logger.error(f"Error normalizing path '{path}': {str(e)}")
         return path  # Return original path if decoding fails
@@ -315,44 +318,6 @@ async def _download_file_via_shell(sandbox: AsyncSandbox, path: str) -> bytes:
         return base64.b64decode(encoded, validate=True)
     except Exception as exc:
         raise RuntimeError(f"shell read returned invalid base64 for path {path}: {exc}") from exc
-
-def _looks_like_preview_interstitial(content: bytes) -> bool:
-    """Detect Daytona proxy warning HTML returned instead of actual file bytes."""
-    if not content:
-        return False
-    snippet = content[:4096].decode("utf-8", errors="ignore").lower()
-    if "<!doctype html" not in snippet and "<html" not in snippet:
-        return False
-    markers = (
-        "preview url warning",
-        "this website is served through daytona.io",
-        "daytonaproxy",
-    )
-    return any(marker in snippet for marker in markers)
-
-
-async def _download_file_via_shell(sandbox: AsyncSandbox, path: str) -> bytes:
-    """
-    Fallback file fetch path that bypasses SDK file-download URL behavior.
-    Useful when proxy interstitial HTML is returned for normal downloads.
-    """
-    py = (
-        "import base64, pathlib; "
-        f"print(base64.b64encode(pathlib.Path({path!r}).read_bytes()).decode('ascii'))"
-    )
-    cmd = f"python3 -c {shlex.quote(py)}"
-    result = await sandbox.process.exec(cmd, timeout=30)
-    if result.exit_code != 0:
-        raise RuntimeError(result.result or f"shell read failed for path: {path}")
-    encoded = (result.result or "").strip()
-    if not encoded:
-        return b""
-    try:
-        return base64.b64decode(encoded, validate=True)
-    except Exception as exc:
-        raise RuntimeError(f"shell read returned invalid base64 for path {path}: {exc}") from exc
-
-
 
 async def get_sandbox_by_id_safely(client, sandbox_id: str) -> AsyncSandbox:
     """
