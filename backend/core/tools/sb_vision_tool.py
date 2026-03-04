@@ -320,6 +320,62 @@ class SandboxVisionTool(SandboxToolsBase):
                     return image_bytes, mime_type
         except Exception as e:
             return self.fail_response(f"Failed to download image from URL: {str(e)}")
+
+    async def _resolve_workspace_visual_path(self, cleaned_path: str):
+        """Resolve a user-provided path to an existing file in /workspace."""
+        candidates = []
+        normalized = (cleaned_path or "").strip().lstrip("/")
+        if normalized:
+            candidates.append(normalized)
+
+        if normalized and not normalized.startswith("uploads/"):
+            candidates.append(f"uploads/{normalized}")
+
+        basename = os.path.basename(normalized)
+        if basename and basename != normalized:
+            candidates.append(basename)
+        if basename and basename not in candidates and not basename.startswith("uploads/"):
+            candidates.append(f"uploads/{basename}")
+
+        # De-duplicate while preserving order
+        seen = set()
+        unique_candidates = []
+        for rel_path in candidates:
+            if rel_path not in seen:
+                seen.add(rel_path)
+                unique_candidates.append(rel_path)
+
+        for rel_path in unique_candidates:
+            full_path = f"{self.workspace_path}/{rel_path}"
+            try:
+                file_info = await self.sandbox.fs.get_file_info(full_path)
+                if not file_info.is_dir:
+                    return rel_path, full_path, file_info, unique_candidates
+            except Exception:
+                continue
+
+        # Last fallback: search by basename in uploads directory.
+        if basename:
+            find_cmd = (
+                "set -e; "
+                f"find {shlex.quote(self.workspace_path + '/uploads')} -type f -name {shlex.quote(basename)} "
+                "2>/dev/null | head -n 1"
+            )
+            find_result = await self.sandbox.process.exec(find_cmd, timeout=15)
+            found_abs = (find_result.result or "").strip()
+            if find_result.exit_code == 0 and found_abs:
+                if found_abs.startswith(f"{self.workspace_path}/"):
+                    rel_path = found_abs[len(f"{self.workspace_path}/"):]
+                else:
+                    rel_path = found_abs
+                try:
+                    file_info = await self.sandbox.fs.get_file_info(found_abs)
+                    if not file_info.is_dir:
+                        return rel_path, found_abs, file_info, unique_candidates
+                except Exception:
+                    pass
+
+        return None, None, None, unique_candidates
     
     @openapi_schema({
         "type": "function",
@@ -352,11 +408,13 @@ Images remain in the sandbox and can be loaded again anytime. SVG files are auto
         """Loads an image file from local file system or from a URL, compresses it, uploads to cloud storage, and returns the public URL."""
         try:
             is_url = self.is_url(file_path)
+            display_file_path = file_path
             if is_url:
                 try:
                     image_bytes, mime_type = await self.download_image_from_url(file_path)
                     original_size = len(image_bytes)
                     cleaned_path = file_path
+                    display_file_path = cleaned_path
                 except Exception as e:
                     return self.fail_response(f"Failed to download image from URL: {str(e)}")
             else:
@@ -365,19 +423,20 @@ Images remain in the sandbox and can be loaded again anytime. SVG files are auto
 
                 # Clean and construct full path
                 cleaned_path = self.clean_path(file_path)
-                full_path = f"{self.workspace_path}/{cleaned_path}"
+                resolved_path, full_path, file_info, attempted_paths = await self._resolve_workspace_visual_path(cleaned_path)
+                if not resolved_path or not full_path or not file_info:
+                    attempted = ", ".join(f"'{p}'" for p in attempted_paths) if attempted_paths else f"'{cleaned_path}'"
+                    return self.fail_response(
+                        f"Image file not found at path: '{cleaned_path}'. Tried: {attempted}"
+                    )
 
-                # Check if file exists and get info
-                try:
-                    file_info = await self.sandbox.fs.get_file_info(full_path)
-                    if file_info.is_dir:
-                        return self.fail_response(f"Path '{cleaned_path}' is a directory, not an image file.")
-                except Exception as e:
-                    return self.fail_response(f"Image file not found at path: '{cleaned_path}'")
+                cleaned_path = resolved_path
+                display_file_path = cleaned_path
 
                 # Determine MIME type and extension
                 mime_type, _ = mimetypes.guess_type(full_path)
                 ext = os.path.splitext(cleaned_path)[1].lower()
+                file_size = int(getattr(file_info, "size", 0) or 0)
 
                 is_pdf = mime_type == "application/pdf" or ext == ".pdf"
                 if is_pdf:
@@ -386,9 +445,9 @@ Images remain in the sandbox and can be loaded again anytime. SVG files are auto
 
                     # PDF files can be larger because we convert one page to PNG.
                     max_pdf_size = 100 * 1024 * 1024
-                    if file_info.size > max_pdf_size:
+                    if file_size > max_pdf_size:
                         return self.fail_response(
-                            f"PDF file '{cleaned_path}' is too large ({file_info.size / (1024*1024):.2f}MB). "
+                            f"PDF file '{cleaned_path}' is too large ({file_size / (1024*1024):.2f}MB). "
                             f"Maximum supported size is {max_pdf_size / (1024*1024):.0f}MB."
                         )
 
@@ -397,14 +456,24 @@ Images remain in the sandbox and can be loaded again anytime. SVG files are auto
                     escaped_pdf = shlex.quote(full_path)
                     escaped_prefix = shlex.quote(temp_prefix)
 
-                    render_cmd = (
-                        f"pdftoppm -png -f {page_number} -singlefile -r 200 {escaped_pdf} {escaped_prefix}"
-                    )
-                    render_result = await self.sandbox.process.exec(render_cmd, timeout=90)
-                    if render_result.exit_code != 0:
+                    render_commands = [
+                        f"pdftoppm -png -f {page_number} -singlefile -r 200 {escaped_pdf} {escaped_prefix}",
+                        f"pdftocairo -png -f {page_number} -singlefile -r 200 {escaped_pdf} {escaped_prefix}",
+                    ]
+                    render_errors = []
+                    rendered = False
+                    for render_cmd in render_commands:
+                        render_result = await self.sandbox.process.exec(render_cmd, timeout=90)
+                        if render_result.exit_code == 0:
+                            rendered = True
+                            break
+                        render_errors.append((render_result.result or "unknown error").strip())
+
+                    if not rendered:
+                        error_summary = " | ".join(err for err in render_errors if err) or "unknown error"
                         return self.fail_response(
                             f"Failed to render PDF page {page_number} from '{cleaned_path}'. "
-                            f"Error: {render_result.result.strip() or 'unknown error'}"
+                            f"Error: {error_summary}"
                         )
 
                     try:
@@ -419,12 +488,12 @@ Images remain in the sandbox and can be loaded again anytime. SVG files are auto
 
                     mime_type = "image/png"
                     original_size = len(image_bytes)
-                    cleaned_path = f"{cleaned_path}#page={page_number}"
+                    display_file_path = f"{cleaned_path} (page {page_number})"
                 else:
                     # Check image file size
-                    if file_info.size > MAX_IMAGE_SIZE:
+                    if file_size > MAX_IMAGE_SIZE:
                         return self.fail_response(
-                            f"Image file '{cleaned_path}' is too large ({file_info.size / (1024*1024):.2f}MB). "
+                            f"Image file '{cleaned_path}' is too large ({file_size / (1024*1024):.2f}MB). "
                             f"Maximum size is {MAX_IMAGE_SIZE / (1024*1024)}MB."
                         )
 
@@ -447,15 +516,17 @@ Images remain in the sandbox and can be loaded again anytime. SVG files are auto
                                 f"Supported: JPG, PNG, GIF, WEBP, SVG, PDF."
                             )
 
-                    original_size = file_info.size
+                    original_size = file_size
             
 
             # Compress the image
-            compressed_bytes, compressed_mime_type = await self.compress_image(image_bytes, mime_type, cleaned_path)
+            compressed_bytes, compressed_mime_type = await self.compress_image(image_bytes, mime_type, display_file_path)
             
             # Check if compressed image is still too large
-            if len(compressed_bytes) > MAX_COMPRESSED_SIZE:
-                return self.fail_response(f"Image file '{cleaned_path}' is still too large after compression ({len(compressed_bytes) / (1024*1024):.2f}MB). Maximum compressed size is {MAX_COMPRESSED_SIZE / (1024*1024)}MB.")
+            if len(compressed_bytes) > MAX_COMPRESSED_SIZE and not (
+                mime_type == "application/pdf" or cleaned_path.lower().endswith(".pdf")
+            ):
+                return self.fail_response(f"Image file '{display_file_path}' is still too large after compression ({len(compressed_bytes) / (1024*1024):.2f}MB). Maximum compressed size is {MAX_COMPRESSED_SIZE / (1024*1024)}MB.")
 
             # For SVG files that were converted to PNG, save the converted PNG to sandbox
             if (mime_type == 'image/svg+xml' or cleaned_path.lower().endswith('.svg')) and compressed_mime_type == 'image/png':
@@ -467,6 +538,7 @@ Images remain in the sandbox and can be loaded again anytime. SVG files are auto
                     # Save converted PNG to sandbox
                     await self.sandbox.fs.upload_file(compressed_bytes, png_full_path)
                     cleaned_path = png_filename
+                    display_file_path = png_filename
                     print(f"[SeeImage] Saved converted PNG to sandbox as '{png_filename}' for frontend display")
                 except Exception as e:
                     print(f"[SeeImage] Warning: Could not save converted PNG to sandbox: {e}")
@@ -530,12 +602,13 @@ Images remain in the sandbox and can be loaded again anytime. SVG files are auto
             # will save the image_context AFTER the tool result is saved.
             # This ensures proper message ordering (tool_call -> tool_result -> image_context).
             
-            logger.info(f"[LoadImage] Prepared '{cleaned_path}' for context (will be saved after tool result)")
+            logger.info(f"[LoadImage] Prepared '{display_file_path}' for context (will be saved after tool result)")
             
             # Return structured output with _image_context_data for deferred saving
             result_data = {
-                "message": f"Successfully loaded image '{cleaned_path}' into context (reduced from {original_size/1024:.1f}KB to {len(compressed_bytes)/1024:.1f}KB).",
-                "file_path": cleaned_path,
+                "message": f"Successfully loaded image '{display_file_path}' into context (reduced from {original_size/1024:.1f}KB to {len(compressed_bytes)/1024:.1f}KB).",
+                "file_path": display_file_path,
+                "source_file_path": cleaned_path,
                 "image_url": public_url,
                 # This special key tells response_processor to save image_context after tool result
                 "_image_context_data": {
@@ -548,7 +621,8 @@ Images remain in the sandbox and can be loaded again anytime. SVG files are auto
                         ]
                     },
                     "metadata": {
-                        "file_path": cleaned_path,
+                        "file_path": display_file_path,
+                        "source_file_path": cleaned_path,
                         "mime_type": compressed_mime_type,
                         "original_size": original_size,
                         "compressed_size": len(compressed_bytes)
