@@ -116,12 +116,31 @@ class MCPToolExecutor:
 
                         arg_variants = []
                         base_args = dict(args or {})
-                        arg_variants.append(base_args)
+                        is_gmail_tool = bool(
+                            (tool_name or "").upper().startswith("GMAIL_")
+                            or (toolkit_slug or "").lower() == "gmail"
+                        )
+                        base_user_id = str(base_args.get("user_id", "")).strip()
+                        is_placeholder_user_id = base_user_id.lower() in {"", "me", "default", "current"}
 
                         candidate_user_ids = []
                         for user_id_candidate in [connected_account_user_id, runtime_user_id]:
                             if user_id_candidate and user_id_candidate not in candidate_user_ids:
                                 candidate_user_ids.append(user_id_candidate)
+
+                        # Gmail-specific precedence:
+                        # 1) remove placeholder user_id so account-bound MCP URL can resolve identity
+                        # 2) try connected-account/runtime user_ids
+                        # 3) fallback to original args last
+                        if is_gmail_tool and "user_id" in base_args and is_placeholder_user_id:
+                            removed_user_id_args = dict(base_args)
+                            removed_user_id_args.pop("user_id", None)
+                            arg_variants.append(removed_user_id_args)
+
+                            if runtime_connected_account_id:
+                                removed_with_ca = dict(removed_user_id_args)
+                                removed_with_ca["connected_account_id"] = runtime_connected_account_id
+                                arg_variants.append(removed_with_ca)
 
                         if isinstance(base_args, dict):
                             if 'user_id' in base_args:
@@ -141,6 +160,21 @@ class MCPToolExecutor:
                                     with_user_id_args = dict(base_args)
                                     with_user_id_args['user_id'] = user_id_candidate
                                     arg_variants.append(with_user_id_args)
+
+                        arg_variants.append(base_args)
+
+                        logger.debug(
+                            "⚡ [MCP EXEC] Arg variant plan for %s profile=%s gmail=%s placeholder_user=%s "
+                            "runtime_user_id=%s connected_account_user_id=%s connected_account_id=%s variants=%s",
+                            tool_name,
+                            resolved_profile_id,
+                            is_gmail_tool,
+                            is_placeholder_user_id,
+                            runtime_user_id,
+                            connected_account_user_id,
+                            runtime_connected_account_id,
+                            len(arg_variants),
+                        )
 
                         deduped_variants = []
                         seen_signatures = set()
