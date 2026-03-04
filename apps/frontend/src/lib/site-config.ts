@@ -15,7 +15,7 @@ export const siteConfig = {
   },
   hero: {
     description:
-      'VentureVerse – open-source platform to build, manage and train your AI Workforce.',
+      "Build, grow, and scale your venture with VentureVerse, the AI Venture Operating System.",
   },
   cloudPricingItems: pricingTiers,
   footerLinks: [
@@ -25,16 +25,16 @@ export const siteConfig = {
         { id: 1, title: 'About', url: '/about' },
         { id: 2, title: 'Careers', url: '/careers' },
         { id: 3, title: 'Support', url: '/support' },
-        { id: 4, title: 'Contact', url: 'mailto:hey@kortix.com' },
+        { id: 4, title: 'Contact', url: 'https://ventureverse.com/contact' },
       ],
     },
     {
       title: 'Resources',
       links: [
         { id: 5, title: 'Tutorials', url: '/tutorials' },
-        { id: 6, title: 'Documentation', url: 'https://github.com/kortix-ai/suna' },
-        { id: 7, title: 'Discord', url: 'https://discord.com/invite/RvFhXUdZ9H' },
-        { id: 8, title: 'GitHub', url: 'https://github.com/kortix-ai/suna' },
+        { id: 6, title: 'VentureVerse.com', url: 'https://ventureverse.com' },
+        { id: 7, title: 'Documentation', url: 'https://github.com/manav1125/suna' },
+        { id: 8, title: 'GitHub', url: 'https://github.com/manav1125/suna' },
       ],
     },
     {
@@ -42,7 +42,7 @@ export const siteConfig = {
       links: [
         { id: 9, title: 'Privacy Policy', url: '/legal?tab=privacy' },
         { id: 10, title: 'Terms of Service', url: '/legal?tab=terms' },
-        { id: 11, title: 'License', url: 'https://github.com/kortix-ai/suna/blob/main/LICENSE' },
+        { id: 11, title: 'License', url: 'https://github.com/manav1125/suna/blob/main/LICENSE' },
       ],
     },
   ],

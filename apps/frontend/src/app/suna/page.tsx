@@ -26,7 +26,7 @@ export const metadata: Metadata = {
     title: 'Suna is now VentureVerse',
     description: 'VentureVerse (formerly Suna) - Same powerful open source AI worker, new name.',
     type: 'website',
-    url: 'https://www.kortix.com/suna',
+    url: 'https://ventureverse.com/suna',
     siteName: 'VentureVerse',
     images: [
       {
@@ -44,7 +44,7 @@ export const metadata: Metadata = {
     images: ['/banner.png'],
   },
   alternates: {
-    canonical: 'https://www.kortix.com/suna',
+    canonical: 'https://ventureverse.com/suna',
   },
   robots: {
     index: true,
@@ -64,12 +64,12 @@ export default function SunaPage() {
             '@type': 'Organization',
             name: 'VentureVerse',
             alternateName: ['Suna', 'VentureVerse Suna', 'Suna AI'],
-            url: 'https://www.kortix.com',
-            logo: 'https://www.kortix.com/favicon.png',
+            url: 'https://ventureverse.com',
+            logo: 'https://ventureverse.com/favicon.png',
             sameAs: [
-              'https://github.com/kortix-ai',
-              'https://x.com/kortix',
-              'https://linkedin.com/company/kortix',
+              'https://github.com/manav1125/suna',
+              'https://x.com/vxvhub',
+              'https://linkedin.com/company/vxvhub',
             ],
             description:
               'VentureVerse (formerly known as Suna) is an open source generalist AI worker that helps you accomplish real-world tasks through natural conversation.',
@@ -88,13 +88,13 @@ export default function SunaPage() {
                 '@type': 'ListItem',
                 position: 1,
                 name: 'Home',
-                item: 'https://www.kortix.com',
+                item: 'https://ventureverse.com',
               },
               {
                 '@type': 'ListItem',
                 position: 2,
                 name: 'Suna is now VentureVerse',
-                item: 'https://www.kortix.com/suna',
+                item: 'https://ventureverse.com/suna',
               },
             ],
           }),
@@ -153,7 +153,7 @@ export default function SunaPage() {
                 <ArrowRight className="ml-2 size-4" />
               </Link>
               <a
-                href="https://github.com/kortix-ai/suna"
+                href="https://github.com/manav1125/suna"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex h-12 items-center justify-center w-full sm:w-auto px-8 text-center rounded-full border border-border bg-background hover:bg-accent/50 transition-all font-medium"
@@ -201,7 +201,7 @@ export default function SunaPage() {
                   Where to find us?
                 </h2>
                 <p className="text-base md:text-lg text-muted-foreground font-medium">
-                  Our GitHub repository remains at github.com/kortix-ai/suna
+                  Our GitHub repository remains at github.com/manav1125/suna
                 </p>
               </div>
             </div>

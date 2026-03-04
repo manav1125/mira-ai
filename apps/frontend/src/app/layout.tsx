@@ -45,7 +45,7 @@ export const metadata: Metadata = {
   },
   description: siteMetadata.description,
   keywords: siteMetadata.keywords,
-  authors: [{ name: 'VentureVerse Team', url: 'https://www.kortix.com' }],
+  authors: [{ name: 'VentureVerse Team', url: 'https://ventureverse.com' }],
   creator: 'VentureVerse Team',
   publisher: 'VentureVerse Team',
   applicationName: siteMetadata.name,
@@ -80,8 +80,8 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: siteMetadata.title,
     description: siteMetadata.description,
-    creator: '@kortix',
-    site: '@kortix',
+    creator: '@vxvhub',
+    site: '@vxvhub',
     images: ['/banner.png'],
   },
   icons: {
@@ -171,16 +171,16 @@ export default function RootLayout({
         <meta name="keywords" content="VentureVerse, AI Worker, Agentic AI, Autonomous AI Worker, AI Automation, AI Workflow Automation, AI Assistant, Task Automation" />
         <meta property="og:title" content="VentureVerse: Your Autonomous AI Worker" />
         <meta property="og:description" content="Built for complex tasks, designed for everything. The ultimate AI assistant that handles it all—from simple requests to mega-complex projects." />
-        <meta property="og:image" content="https://kortix.com/banner.png" />
-        <meta property="og:url" content="https://kortix.com" />
+        <meta property="og:image" content="https://ventureverse.com/banner.png" />
+        <meta property="og:url" content="https://ventureverse.com" />
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content="VentureVerse" />
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content="VentureVerse: Your Autonomous AI Worker" />
         <meta name="twitter:description" content="Built for complex tasks, designed for everything. The ultimate AI assistant that handles it all—from simple requests to mega-complex projects." />
-        <meta name="twitter:image" content="https://kortix.com/banner.png" />
-        <meta name="twitter:site" content="@kortix" />
-        <link rel="canonical" href="https://kortix.com" />
+        <meta name="twitter:image" content="https://ventureverse.com/banner.png" />
+        <meta name="twitter:site" content="@vxvhub" />
+        <link rel="canonical" href="https://ventureverse.com" />
         
         {/* iOS Smart App Banner - shows native install banner in Safari */}
         {!featureFlags.disableMobileAdvertising ? (
@@ -202,9 +202,9 @@ export default function RootLayout({
               description: siteMetadata.description,
               foundingDate: '2024',
               sameAs: [
-                'https://github.com/kortix-ai/suna',
-                'https://x.com/kortix',
-                'https://linkedin.com/company/kortix',
+                'https://github.com/manav1125/suna',
+                'https://x.com/vxvhub',
+                'https://linkedin.com/company/vxvhub',
               ],
               contactPoint: {
                 '@type': 'ContactPoint',

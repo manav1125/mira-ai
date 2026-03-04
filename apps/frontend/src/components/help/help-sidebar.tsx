@@ -41,12 +41,12 @@ const helpData = {
       items: [
         {
           title: "GitHub Repository",
-          url: "https://github.com/kortix-ai/suna",
+          url: "https://github.com/manav1125/suna",
           external: true,
         },
         {
           title: "Discord Community",
-          url: "https://discord.com/invite/RvFhXUdZ9H",
+          url: "https://discord.com/invite/vxvhub",
           external: true,
         },
       ],
@@ -146,4 +146,3 @@ export function HelpSidebar({ onSearchClick, ...props }: HelpSidebarProps) {
     </Sidebar>
   )
 }
-

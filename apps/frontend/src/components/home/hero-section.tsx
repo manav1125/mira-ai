@@ -217,11 +217,11 @@ export function HeroSection() {
 
           <div className="mt-8 text-center text-[13px] text-muted-foreground leading-relaxed">
             {tAuth('byContinuingYouAgreeSimple')}{' '}
-            <a href="https://www.kortix.com/legal?tab=terms" target="_blank" rel="noopener noreferrer" className="text-foreground/70 hover:text-foreground underline underline-offset-2 transition-colors">
+            <a href="/legal?tab=terms" target="_blank" rel="noopener noreferrer" className="text-foreground/70 hover:text-foreground underline underline-offset-2 transition-colors">
               {tAuth('termsOfService')}
             </a>{' '}
             and{' '}
-            <a href="https://www.kortix.com/legal?tab=privacy" target="_blank" rel="noopener noreferrer" className="text-foreground/70 hover:text-foreground underline underline-offset-2 transition-colors">
+            <a href="/legal?tab=privacy" target="_blank" rel="noopener noreferrer" className="text-foreground/70 hover:text-foreground underline underline-offset-2 transition-colors">
               {tAuth('privacyPolicy')}
             </a>
           </div>
