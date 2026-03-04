@@ -55,6 +55,25 @@ class ComposioProfileService:
     def _generate_config_hash(self, config_json: str) -> str:
         return hashlib.sha256(config_json.encode()).hexdigest()
 
+    def _normalize_runtime_mcp_url(
+        self,
+        mcp_url: str,
+        connected_account_id: Optional[str] = None,
+    ) -> str:
+        """
+        Normalize runtime URL routing.
+        If connected_account_id is available, enforce connected-account routing only
+        to avoid user_id/connected_account mismatches from stale legacy URLs.
+        """
+        if not mcp_url:
+            return mcp_url
+        if not connected_account_id:
+            return mcp_url
+
+        parsed = urlparse(mcp_url)
+        normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}?connected_account_id={connected_account_id}"
+        return normalized
+
     def _row_to_profile(self, row: Dict[str, Any]) -> ComposioProfile:
         config = self._decrypt_config(row['encrypted_config'])
         return ComposioProfile(
@@ -258,15 +277,15 @@ class ComposioProfileService:
 
             connected_account_id = config.get('connected_account_id')
 
-            # Normalize to connected_account URL whenever possible for deterministic routing.
-            if connected_account_id and 'connected_account_id=' not in mcp_url:
-                parsed = urlparse(mcp_url)
-                upgraded_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}?connected_account_id={connected_account_id}"
-                logger.info(f"[MCP URL] Upgraded for profile {profile_id}: {upgraded_url}")
-                return upgraded_url
-
-            logger.info(f"[MCP URL] Using stored URL for profile {profile_id}: {mcp_url}")
-            return mcp_url
+            normalized_url = self._normalize_runtime_mcp_url(
+                mcp_url,
+                connected_account_id=connected_account_id
+            )
+            if normalized_url != mcp_url:
+                logger.info(f"[MCP URL] Normalized for profile {profile_id}: {normalized_url}")
+            else:
+                logger.info(f"[MCP URL] Using stored URL for profile {profile_id}: {mcp_url}")
+            return normalized_url
 
         except Exception as e:
             logger.error(f"Failed to get MCP URL for profile {profile_id}: {e}", exc_info=True)
@@ -355,7 +374,6 @@ class ComposioProfileService:
                     response = await mcp_server_service.generate_mcp_url(
                         mcp_server_id=server.id,
                         connected_account_ids=[connected_account_id],
-                        user_ids=[config.get('user_id')] if config.get('user_id') else None
                     )
 
                     refreshed_url = None
@@ -368,6 +386,11 @@ class ComposioProfileService:
 
                     if not refreshed_url:
                         continue
+
+                    refreshed_url = self._normalize_runtime_mcp_url(
+                        refreshed_url,
+                        connected_account_id=connected_account_id
+                    )
 
                     if config.get('mcp_url') != refreshed_url:
                         config['mcp_url'] = refreshed_url
