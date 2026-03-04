@@ -6,6 +6,7 @@ from typing import List, Optional, Dict, Any, Tuple
 from uuid import uuid4
 from cryptography.fernet import Fernet
 import os
+from urllib.parse import urlparse
 
 from core.services.supabase import DBConnection
 from core.utils.logger import logger
@@ -257,9 +258,8 @@ class ComposioProfileService:
 
             connected_account_id = config.get('connected_account_id')
 
-            # Upgrade legacy user_id-based URLs to connected_account-based URLs for deterministic routing
-            if connected_account_id and 'user_id=' in mcp_url and 'connected_account_id=' not in mcp_url:
-                from urllib.parse import urlparse
+            # Normalize to connected_account URL whenever possible for deterministic routing.
+            if connected_account_id and 'connected_account_id=' not in mcp_url:
                 parsed = urlparse(mcp_url)
                 upgraded_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}?connected_account_id={connected_account_id}"
                 logger.info(f"[MCP URL] Upgraded for profile {profile_id}: {upgraded_url}")
@@ -271,6 +271,141 @@ class ComposioProfileService:
         except Exception as e:
             logger.error(f"Failed to get MCP URL for profile {profile_id}: {e}", exc_info=True)
             raise
+
+    async def refresh_runtime_mcp_url(
+        self,
+        profile_id: str,
+        account_id: str,
+        toolkit_slug: Optional[str] = None,
+    ) -> Optional[str]:
+        """
+        Best-effort runtime URL refresh for stale Composio profile URLs.
+        Re-generates an MCP URL from Composio using connected_account_id and stores it back in profile config.
+        Returns refreshed URL if available, otherwise None.
+        """
+        try:
+            client = await self.db.client
+            result = await client.table('user_mcp_credential_profiles').select('*').eq(
+                'profile_id', profile_id
+            ).eq('account_id', account_id).execute()
+
+            if not result.data:
+                logger.warning(f"[MCP URL] refresh skipped: profile {profile_id} not found for account {account_id}")
+                return None
+
+            row = result.data[0]
+            config = self._decrypt_config(row['encrypted_config'])
+            connected_account_id = config.get('connected_account_id')
+            if not connected_account_id:
+                logger.warning(f"[MCP URL] refresh skipped: profile {profile_id} has no connected_account_id")
+                return None
+
+            from .connected_account_service import ConnectedAccountService
+            from .mcp_server_service import MCPServerService
+
+            connected_account_service = ConnectedAccountService()
+            mcp_server_service = MCPServerService()
+
+            connected_account = await connected_account_service.get_connected_account(connected_account_id)
+            if not connected_account:
+                logger.warning(
+                    f"[MCP URL] refresh skipped: connected account {connected_account_id} not found"
+                )
+                return None
+
+            account_status = (connected_account.status or "").upper()
+            if account_status and account_status not in {"ACTIVE", "CONNECTED"}:
+                logger.warning(
+                    f"[MCP URL] refresh skipped: connected account {connected_account_id} status is {account_status}"
+                )
+                return None
+
+            servers = await mcp_server_service.list_mcp_servers()
+            auth_config_id = connected_account.auth_config_id
+            matching_servers = [
+                server for server in servers
+                if auth_config_id and auth_config_id in (server.auth_config_ids or [])
+            ]
+            if not matching_servers:
+                logger.warning(
+                    f"[MCP URL] refresh skipped: no MCP server found for auth_config_id {auth_config_id}"
+                )
+                return None
+
+            requested_toolkit = (toolkit_slug or config.get('toolkit_slug') or '').strip().lower()
+            prioritized = []
+            others = []
+            for server in matching_servers:
+                toolkits = [(tk or '').strip().lower() for tk in (server.toolkits or [])]
+                if requested_toolkit and requested_toolkit in toolkits:
+                    prioritized.append(server)
+                else:
+                    others.append(server)
+            ordered_servers = prioritized + others
+
+            # Prefer newest server first when timestamps are available.
+            ordered_servers.sort(
+                key=lambda s: (s.updated_at or s.created_at or ''),
+                reverse=True
+            )
+
+            refresh_errors: List[str] = []
+            for server in ordered_servers:
+                try:
+                    response = await mcp_server_service.generate_mcp_url(
+                        mcp_server_id=server.id,
+                        connected_account_ids=[connected_account_id],
+                        user_ids=[config.get('user_id')] if config.get('user_id') else None
+                    )
+
+                    refreshed_url = None
+                    if response.connected_account_urls:
+                        refreshed_url = response.connected_account_urls[0]
+                    elif response.user_ids_url:
+                        refreshed_url = response.user_ids_url[0]
+                    else:
+                        refreshed_url = response.mcp_url
+
+                    if not refreshed_url:
+                        continue
+
+                    if config.get('mcp_url') != refreshed_url:
+                        config['mcp_url'] = refreshed_url
+                        config_json = json.dumps(config, sort_keys=True)
+                        encrypted_config = self._encrypt_config(config_json)
+                        config_hash = self._generate_config_hash(config_json)
+                        now = datetime.now(timezone.utc).isoformat()
+
+                        await client.table('user_mcp_credential_profiles').update({
+                            'encrypted_config': encrypted_config,
+                            'config_hash': config_hash,
+                            'updated_at': now
+                        }).eq('profile_id', profile_id).eq('account_id', account_id).execute()
+
+                        logger.info(
+                            f"[MCP URL] Refreshed Composio URL for profile {profile_id} using server {server.id}"
+                        )
+                    else:
+                        logger.info(
+                            f"[MCP URL] Refreshed Composio URL matched existing value for profile {profile_id}"
+                        )
+
+                    return refreshed_url
+                except Exception as server_error:
+                    refresh_errors.append(f"server_id={server.id}: {server_error}")
+                    logger.warning(
+                        f"[MCP URL] Failed URL refresh attempt for profile {profile_id} with server {server.id}: {server_error}"
+                    )
+
+            if refresh_errors:
+                logger.warning(
+                    f"[MCP URL] Unable to refresh profile {profile_id}. Errors: {' | '.join(refresh_errors)}"
+                )
+            return None
+
+        except Exception as e:
+            logger.error(f"Failed to refresh MCP URL for profile {profile_id}: {e}", exc_info=True)
+            return None
 
     async def get_profile_config(self, profile_id: str, account_id: str) -> Dict[str, Any]:
         try:

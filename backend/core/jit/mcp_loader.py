@@ -423,6 +423,23 @@ class MCPJITLoader:
             return await self._load_custom_mcp_schema(tool_name, toolkit_slug, mcp_config, "http")
     
     async def _load_composio_schema(self, tool_name: str, toolkit_slug: str, mcp_config: Dict[str, Any]) -> Dict[str, Any]:
+        def _format_exception(exc: Exception) -> str:
+            messages: List[str] = []
+
+            def _walk(current: Exception) -> None:
+                nested = getattr(current, 'exceptions', None)
+                if nested:
+                    for child in nested:
+                        _walk(child)
+                    return
+                messages.append(f"{type(current).__name__}: {current}")
+
+            _walk(exc)
+            if messages:
+                # Preserve order, deduplicate repeated nested messages.
+                return " | ".join(dict.fromkeys(messages))
+            return f"{type(exc).__name__}: {exc}"
+
         try:
             config = mcp_config.get('config', {})
             preferred_profile_id = config.get('profile_id')
@@ -445,42 +462,62 @@ class MCPJITLoader:
             candidate_errors: List[str] = []
 
             for resolved_profile_id, mcp_url in candidates:
-                try:
-                    logger.debug(
-                        f"⚡ [MCP JIT] Trying Composio profile {resolved_profile_id} for schema load: {tool_name}"
-                    )
-                    async with streamablehttp_client(mcp_url) as (read_stream, write_stream, _):
-                        async with ClientSession(read_stream, write_stream) as session:
-                            await session.initialize()
-                            tools_result = await session.list_tools()
-                            tools = tools_result.tools if hasattr(tools_result, 'tools') else tools_result
-                            
-                            for tool in tools:
-                                if tool.name == tool_name:
-                                    schema = {
-                                        "name": tool.name,
-                                        "description": tool.description,
-                                        "input_schema": tool.inputSchema
-                                    }
-                                    if resolved_profile_id != preferred_profile_id:
-                                        logger.info(
-                                            f"⚡ [MCP JIT] Fallback Composio profile resolved for {tool_name}: "
-                                            f"{preferred_profile_id} -> {resolved_profile_id}"
-                                        )
-                                        # Keep runtime config aligned so later executions use the same resolved profile.
-                                        config['profile_id'] = resolved_profile_id
-                                    logger.debug(f"⚡ [MCP JIT] Found Composio schema for {tool_name}")
-                                    return schema
-                            
-                            available_tools = [tool.name for tool in tools]
-                            raise ValueError(f"Tool '{tool_name}' not found. Available: {available_tools}")
-                except Exception as candidate_error:
-                    candidate_errors.append(
-                        f"profile_id={resolved_profile_id}: {candidate_error}"
-                    )
-                    logger.warning(
-                        f"⚠️ [MCP JIT] Schema load failed for {tool_name} with profile {resolved_profile_id}: {candidate_error}"
-                    )
+                refresh_attempted = False
+                attempted_urls = [mcp_url]
+
+                while attempted_urls:
+                    runtime_url = attempted_urls.pop(0)
+                    try:
+                        logger.debug(
+                            f"⚡ [MCP JIT] Trying Composio profile {resolved_profile_id} for schema load: {tool_name}"
+                        )
+                        async with streamablehttp_client(runtime_url) as (read_stream, write_stream, _):
+                            async with ClientSession(read_stream, write_stream) as session:
+                                await session.initialize()
+                                tools_result = await session.list_tools()
+                                tools = tools_result.tools if hasattr(tools_result, 'tools') else tools_result
+
+                                for tool in tools:
+                                    if tool.name == tool_name:
+                                        schema = {
+                                            "name": tool.name,
+                                            "description": tool.description,
+                                            "input_schema": tool.inputSchema
+                                        }
+                                        if resolved_profile_id != preferred_profile_id:
+                                            logger.info(
+                                                f"⚡ [MCP JIT] Fallback Composio profile resolved for {tool_name}: "
+                                                f"{preferred_profile_id} -> {resolved_profile_id}"
+                                            )
+                                            # Keep runtime config aligned so later executions use the same resolved profile.
+                                            config['profile_id'] = resolved_profile_id
+                                        logger.debug(f"⚡ [MCP JIT] Found Composio schema for {tool_name}")
+                                        return schema
+
+                                available_tools = [tool.name for tool in tools]
+                                raise ValueError(f"Tool '{tool_name}' not found. Available: {available_tools}")
+                    except Exception as candidate_error:
+                        formatted_error = _format_exception(candidate_error)
+                        if not refresh_attempted:
+                            refresh_attempted = True
+                            refreshed_url = await profile_service.refresh_runtime_mcp_url(
+                                profile_id=resolved_profile_id,
+                                account_id=account_id,
+                                toolkit_slug=toolkit_slug
+                            )
+                            if refreshed_url and refreshed_url != runtime_url:
+                                logger.info(
+                                    f"⚡ [MCP JIT] Retrying schema load for {tool_name} with refreshed MCP URL (profile {resolved_profile_id})"
+                                )
+                                attempted_urls.append(refreshed_url)
+                                continue
+                        candidate_errors.append(
+                            f"profile_id={resolved_profile_id}: {formatted_error}"
+                        )
+                        logger.warning(
+                            f"⚠️ [MCP JIT] Schema load failed for {tool_name} with profile {resolved_profile_id}: {formatted_error}"
+                        )
+                        break
 
             raise ValueError(
                 f"Failed to load Composio schema for {tool_name} after trying {len(candidates)} profile(s). "

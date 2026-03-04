@@ -37,6 +37,22 @@ class MCPToolExecutor:
             raise
     
     async def _execute_composio_tool(self, tool_name: str, args: Dict[str, Any]) -> Any:
+        def _format_exception(exc: Exception) -> str:
+            messages = []
+
+            def _walk(current: Exception) -> None:
+                nested = getattr(current, 'exceptions', None)
+                if nested:
+                    for child in nested:
+                        _walk(child)
+                    return
+                messages.append(f"{type(current).__name__}: {current}")
+
+            _walk(exc)
+            if messages:
+                return " | ".join(dict.fromkeys(messages))
+            return f"{type(exc).__name__}: {exc}"
+
         from core.composio_integration.composio_profile_service import ComposioProfileService
         from core.services.supabase import DBConnection
         from mcp.client.streamable_http import streamablehttp_client
@@ -68,31 +84,51 @@ class MCPToolExecutor:
             )
             candidate_errors = []
             for resolved_profile_id, mcp_url in candidates:
-                try:
-                    logger.debug(
-                        f"⚡ [MCP EXEC] Trying Composio profile {resolved_profile_id} for {tool_name}"
-                    )
-                    async with streamablehttp_client(mcp_url) as (read, write, _):
-                        async with ClientSession(read, write) as session:
-                            await session.initialize()
-                            result = await session.call_tool(tool_name, arguments=args)
-                            content = self._extract_result_content(result)
+                refresh_attempted = False
+                attempted_urls = [mcp_url]
 
-                            if resolved_profile_id != preferred_profile_id:
+                while attempted_urls:
+                    runtime_url = attempted_urls.pop(0)
+                    try:
+                        logger.debug(
+                            f"⚡ [MCP EXEC] Trying Composio profile {resolved_profile_id} for {tool_name}"
+                        )
+                        async with streamablehttp_client(runtime_url) as (read, write, _):
+                            async with ClientSession(read, write) as session:
+                                await session.initialize()
+                                result = await session.call_tool(tool_name, arguments=args)
+                                content = self._extract_result_content(result)
+
+                                if resolved_profile_id != preferred_profile_id:
+                                    logger.info(
+                                        f"⚡ [MCP EXEC] Fallback Composio profile resolved for {tool_name}: "
+                                        f"{preferred_profile_id} -> {resolved_profile_id}"
+                                    )
+                                    custom_config['profile_id'] = resolved_profile_id
+
+                                return ToolResult(success=True, output=str(content))
+                    except Exception as candidate_error:
+                        formatted_error = _format_exception(candidate_error)
+                        if not refresh_attempted:
+                            refresh_attempted = True
+                            refreshed_url = await profile_service.refresh_runtime_mcp_url(
+                                profile_id=resolved_profile_id,
+                                account_id=self.account_id,
+                                toolkit_slug=toolkit_slug
+                            )
+                            if refreshed_url and refreshed_url != runtime_url:
                                 logger.info(
-                                    f"⚡ [MCP EXEC] Fallback Composio profile resolved for {tool_name}: "
-                                    f"{preferred_profile_id} -> {resolved_profile_id}"
+                                    f"⚡ [MCP EXEC] Retrying {tool_name} with refreshed MCP URL (profile {resolved_profile_id})"
                                 )
-                                custom_config['profile_id'] = resolved_profile_id
-
-                            return ToolResult(success=True, output=str(content))
-                except Exception as candidate_error:
-                    candidate_errors.append(
-                        f"profile_id={resolved_profile_id}: {candidate_error}"
-                    )
-                    logger.warning(
-                        f"⚠️ [MCP EXEC] Composio execution failed for {tool_name} with profile {resolved_profile_id}: {candidate_error}"
-                    )
+                                attempted_urls.append(refreshed_url)
+                                continue
+                        candidate_errors.append(
+                            f"profile_id={resolved_profile_id}: {formatted_error}"
+                        )
+                        logger.warning(
+                            f"⚠️ [MCP EXEC] Composio execution failed for {tool_name} with profile {resolved_profile_id}: {formatted_error}"
+                        )
+                        break
 
             raise ValueError(
                 f"Failed to execute Composio tool '{tool_name}' after trying {len(candidates)} profile(s). "
