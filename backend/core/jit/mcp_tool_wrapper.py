@@ -162,10 +162,26 @@ class MCPToolExecutor:
                                 await session.initialize()
 
                                 last_variant_error = None
-                                for variant in deduped_variants:
+                                mismatch_text = "connected account user id does not match the provided user id"
+                                for variant_index, variant in enumerate(deduped_variants):
+                                    is_last_variant = variant_index == len(deduped_variants) - 1
                                     try:
                                         result = await session.call_tool(tool_name, arguments=variant)
                                         content = self._extract_result_content(result)
+                                        output_text = str(content)
+
+                                        # Some MCP servers return user-id mismatch as successful text output
+                                        # instead of raising exceptions. Treat it as retryable failure.
+                                        if mismatch_text in output_text.lower():
+                                            mismatch_error = ValueError(output_text)
+                                            last_variant_error = mismatch_error
+                                            if not is_last_variant:
+                                                logger.warning(
+                                                    f"⚠️ [MCP EXEC] User-id mismatch output for {tool_name}; "
+                                                    f"trying aligned args variant"
+                                                )
+                                                continue
+                                            raise mismatch_error
 
                                         if resolved_profile_id != preferred_profile_id:
                                             logger.info(
@@ -185,17 +201,16 @@ class MCPToolExecutor:
                                         formatted_variant_error = _format_exception(variant_error)
                                         last_variant_error = variant_error
 
-                                        mismatch_text = "connected account user id does not match the provided user id"
                                         if (
                                             mismatch_text in formatted_variant_error.lower()
-                                            and variant is not deduped_variants[-1]
+                                            and not is_last_variant
                                         ):
                                             logger.warning(
                                                 f"⚠️ [MCP EXEC] User-id mismatch for {tool_name}; trying aligned args variant"
                                             )
                                             continue
 
-                                        if variant is not deduped_variants[-1]:
+                                        if not is_last_variant:
                                             continue
 
                                 if last_variant_error:
