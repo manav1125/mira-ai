@@ -8,6 +8,7 @@ from cryptography.fernet import Fernet
 import os
 from urllib.parse import urlparse
 from urllib.parse import parse_qs
+from urllib.parse import urlencode
 
 from core.services.supabase import DBConnection
 from core.utils.logger import logger
@@ -60,6 +61,8 @@ class ComposioProfileService:
         self,
         mcp_url: str,
         connected_account_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        toolkit_slug: Optional[str] = None,
     ) -> str:
         """
         Normalize runtime URL routing.
@@ -70,6 +73,17 @@ class ComposioProfileService:
             return mcp_url
         parsed = urlparse(mcp_url)
         existing = parse_qs(parsed.query or "")
+
+        normalized_toolkit = (toolkit_slug or "").strip().lower()
+
+        # Gmail runtime is sensitive to Composio user context. Ensure a concrete
+        # Composio user_id is present in URL query whenever we have one.
+        if normalized_toolkit == "gmail" and user_id:
+            if existing.get("user_id", [None])[0] != user_id:
+                existing["user_id"] = [user_id]
+                query = urlencode(existing, doseq=True)
+                return f"{parsed.scheme}://{parsed.netloc}{parsed.path}?{query}"
+            return mcp_url
 
         # Preserve Composio-generated context as-is when already pinned.
         # Some projects use connected_account_ids (plural) URLs.
@@ -288,10 +302,14 @@ class ComposioProfileService:
                 raise ValueError(f"Profile {profile_id} has no MCP URL")
 
             connected_account_id = config.get('connected_account_id')
+            runtime_user_id = config.get('user_id')
+            runtime_toolkit_slug = config.get('toolkit_slug')
 
             normalized_url = self._normalize_runtime_mcp_url(
                 mcp_url,
-                connected_account_id=connected_account_id
+                connected_account_id=connected_account_id,
+                user_id=runtime_user_id,
+                toolkit_slug=runtime_toolkit_slug,
             )
             if normalized_url != mcp_url:
                 logger.info(f"[MCP URL] Normalized for profile {profile_id}: {normalized_url}")
@@ -327,6 +345,12 @@ class ComposioProfileService:
             row = result.data[0]
             config = self._decrypt_config(row['encrypted_config'])
             connected_account_id = config.get('connected_account_id')
+            runtime_user_id = config.get('user_id')
+            requested_toolkit = (
+                toolkit_slug
+                or config.get('toolkit_slug')
+                or ''
+            ).strip().lower()
             if not connected_account_id:
                 logger.warning(f"[MCP URL] refresh skipped: profile {profile_id} has no connected_account_id")
                 return None
@@ -363,7 +387,6 @@ class ComposioProfileService:
                 )
                 return None
 
-            requested_toolkit = (toolkit_slug or config.get('toolkit_slug') or '').strip().lower()
             prioritized = []
             others = []
             for server in matching_servers:
@@ -383,13 +406,20 @@ class ComposioProfileService:
             refresh_errors: List[str] = []
             for server in ordered_servers:
                 try:
+                    refresh_user_id = getattr(connected_account, "user_id", None) or runtime_user_id
                     response = await mcp_server_service.generate_mcp_url(
                         mcp_server_id=server.id,
                         connected_account_ids=[connected_account_id],
+                        user_ids=[refresh_user_id] if refresh_user_id else None,
                     )
 
                     refreshed_url = None
-                    if response.connected_account_urls:
+                    if requested_toolkit == "gmail":
+                        if response.user_ids_url:
+                            refreshed_url = response.user_ids_url[0]
+                        elif response.connected_account_urls:
+                            refreshed_url = response.connected_account_urls[0]
+                    elif response.connected_account_urls:
                         refreshed_url = response.connected_account_urls[0]
                     elif response.user_ids_url:
                         refreshed_url = response.user_ids_url[0]
@@ -401,11 +431,21 @@ class ComposioProfileService:
 
                     refreshed_url = self._normalize_runtime_mcp_url(
                         refreshed_url,
-                        connected_account_id=connected_account_id
+                        connected_account_id=connected_account_id,
+                        user_id=refresh_user_id,
+                        toolkit_slug=requested_toolkit,
                     )
+
+                    config_changed = False
+                    if refresh_user_id and config.get("user_id") != refresh_user_id:
+                        config["user_id"] = refresh_user_id
+                        config_changed = True
 
                     if config.get('mcp_url') != refreshed_url:
                         config['mcp_url'] = refreshed_url
+                        config_changed = True
+
+                    if config_changed:
                         config_json = json.dumps(config, sort_keys=True)
                         encrypted_config = self._encrypt_config(config_json)
                         config_hash = self._generate_config_hash(config_json)

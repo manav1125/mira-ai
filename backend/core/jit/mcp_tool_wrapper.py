@@ -114,7 +114,6 @@ class MCPToolExecutor:
                                     f"{runtime_connected_account_id}: {connected_account_error}"
                                 )
 
-                        arg_variants = []
                         base_args = dict(args or {})
                         is_gmail_tool = bool(
                             (tool_name or "").upper().startswith("GMAIL_")
@@ -128,21 +127,30 @@ class MCPToolExecutor:
                             if user_id_candidate and user_id_candidate not in candidate_user_ids:
                                 candidate_user_ids.append(user_id_candidate)
 
-                        # Gmail-specific precedence:
-                        # 1) remove placeholder user_id so account-bound MCP URL can resolve identity
-                        # 2) try connected-account/runtime user_ids
-                        # 3) fallback to original args last
-                        if is_gmail_tool and "user_id" in base_args and is_placeholder_user_id:
-                            removed_user_id_args = dict(base_args)
-                            removed_user_id_args.pop("user_id", None)
-                            arg_variants.append(removed_user_id_args)
+                        arg_variants = []
+                        if is_gmail_tool:
+                            # Gmail tools usually expect Gmail-style user_id ("me"), not Composio UUID.
+                            # Keep original args first, then try removing/adding user_id variants.
+                            arg_variants.append(dict(base_args))
 
-                            if runtime_connected_account_id:
-                                removed_with_ca = dict(removed_user_id_args)
-                                removed_with_ca["connected_account_id"] = runtime_connected_account_id
-                                arg_variants.append(removed_with_ca)
+                            if "user_id" in base_args and is_placeholder_user_id:
+                                removed_user_id_args = dict(base_args)
+                                removed_user_id_args.pop("user_id", None)
+                                arg_variants.append(removed_user_id_args)
 
-                        if isinstance(base_args, dict):
+                            if "user_id" not in base_args:
+                                with_me_user = dict(base_args)
+                                with_me_user["user_id"] = "me"
+                                arg_variants.append(with_me_user)
+
+                            # Last-resort: some Composio backends expect platform user_id in args.
+                            for user_id_candidate in candidate_user_ids:
+                                if str(base_args.get("user_id", "")).strip() == str(user_id_candidate):
+                                    continue
+                                with_platform_user = dict(base_args)
+                                with_platform_user["user_id"] = user_id_candidate
+                                arg_variants.append(with_platform_user)
+                        else:
                             if 'user_id' in base_args:
                                 for user_id_candidate in candidate_user_ids:
                                     if base_args.get('user_id') == user_id_candidate:
@@ -161,7 +169,7 @@ class MCPToolExecutor:
                                     with_user_id_args['user_id'] = user_id_candidate
                                     arg_variants.append(with_user_id_args)
 
-                        arg_variants.append(base_args)
+                            arg_variants.append(base_args)
 
                         logger.debug(
                             "⚡ [MCP EXEC] Arg variant plan for %s profile=%s gmail=%s placeholder_user=%s "

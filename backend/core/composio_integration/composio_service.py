@@ -105,6 +105,7 @@ class ComposioIntegrationService:
             mcp_url_response = await self.mcp_server_service.generate_mcp_url(
                 mcp_server_id=mcp_server.id,
                 connected_account_ids=[connected_account.id],
+                user_ids=[connected_account.user_id] if getattr(connected_account, "user_id", None) else [user_id],
             )
             
             
@@ -112,16 +113,32 @@ class ComposioIntegrationService:
             
             logger.debug(f"Step 5 complete: Generated MCP URLs")
             
-            # Prefer connected_account URL (pins to exact OAuth credentials) over user_id URL (ambiguous if user has multiple accounts)
-            if mcp_url_response.connected_account_urls:
-                final_mcp_url = mcp_url_response.connected_account_urls[0]
-                logger.info(f"Using connected_account-specific MCP URL for {toolkit_slug} (connected_account_id={connected_account.id})")
-            elif mcp_url_response.user_ids_url:
-                final_mcp_url = mcp_url_response.user_ids_url[0]
-                logger.warning(f"Falling back to user_id-based MCP URL for {toolkit_slug} — connected_account URL not available")
+            # Gmail MCP tools require a stable Composio user context for execution.
+            # Prefer user_id-bound URL for Gmail; keep connected-account-first for others.
+            if (toolkit_slug or "").lower() == "gmail":
+                if mcp_url_response.user_ids_url:
+                    final_mcp_url = mcp_url_response.user_ids_url[0]
+                    logger.info(
+                        f"Using user_id-specific MCP URL for gmail (user_id={getattr(connected_account, 'user_id', None)})"
+                    )
+                elif mcp_url_response.connected_account_urls:
+                    final_mcp_url = mcp_url_response.connected_account_urls[0]
+                    logger.warning(
+                        f"Falling back to connected_account MCP URL for gmail (connected_account_id={connected_account.id})"
+                    )
+                else:
+                    final_mcp_url = mcp_url_response.mcp_url
+                    logger.warning("Using base MCP URL for gmail — no user/account-specific URL available")
             else:
-                final_mcp_url = mcp_url_response.mcp_url
-                logger.warning(f"Using base MCP URL for {toolkit_slug} — no user/account-specific URL available")
+                if mcp_url_response.connected_account_urls:
+                    final_mcp_url = mcp_url_response.connected_account_urls[0]
+                    logger.info(f"Using connected_account-specific MCP URL for {toolkit_slug} (connected_account_id={connected_account.id})")
+                elif mcp_url_response.user_ids_url:
+                    final_mcp_url = mcp_url_response.user_ids_url[0]
+                    logger.warning(f"Falling back to user_id-based MCP URL for {toolkit_slug} — connected_account URL not available")
+                else:
+                    final_mcp_url = mcp_url_response.mcp_url
+                    logger.warning(f"Using base MCP URL for {toolkit_slug} — no user/account-specific URL available")
             
             profile_id = None
             if save_as_profile and self.profile_service:
@@ -135,7 +152,7 @@ class ComposioIntegrationService:
                     toolkit_name=toolkit.name,
                     mcp_url=final_mcp_url,
                     redirect_url=connected_account.redirect_url,
-                    user_id=user_id,
+                    user_id=getattr(connected_account, "user_id", None) or user_id,
                     is_default=False,
                     connected_account_id=connected_account.id
                 )
