@@ -1,4 +1,5 @@
 import asyncio
+import json
 from typing import Dict, Any
 from core.utils.logger import logger
 
@@ -54,6 +55,7 @@ class MCPToolExecutor:
             return f"{type(exc).__name__}: {exc}"
 
         from core.composio_integration.composio_profile_service import ComposioProfileService
+        from core.composio_integration.connected_account_service import ConnectedAccountService
         from core.services.supabase import DBConnection
         from mcp.client.streamable_http import streamablehttp_client
         from mcp import ClientSession
@@ -90,23 +92,114 @@ class MCPToolExecutor:
                 while attempted_urls:
                     runtime_url = attempted_urls.pop(0)
                     try:
+                        profile_config = await profile_service.get_profile_config(
+                            resolved_profile_id,
+                            account_id=self.account_id
+                        )
+                        runtime_user_id = profile_config.get("user_id")
+                        runtime_connected_account_id = profile_config.get("connected_account_id")
+                        connected_account_user_id = None
+
+                        if runtime_connected_account_id:
+                            try:
+                                connected_account_service = ConnectedAccountService()
+                                connected_account = await connected_account_service.get_connected_account(
+                                    runtime_connected_account_id
+                                )
+                                if connected_account and getattr(connected_account, "user_id", None):
+                                    connected_account_user_id = connected_account.user_id
+                            except Exception as connected_account_error:
+                                logger.warning(
+                                    f"⚠️ [MCP EXEC] Could not fetch connected account user id for "
+                                    f"{runtime_connected_account_id}: {connected_account_error}"
+                                )
+
+                        arg_variants = []
+                        base_args = dict(args or {})
+                        arg_variants.append(base_args)
+
+                        candidate_user_ids = []
+                        for user_id_candidate in [connected_account_user_id, runtime_user_id]:
+                            if user_id_candidate and user_id_candidate not in candidate_user_ids:
+                                candidate_user_ids.append(user_id_candidate)
+
+                        if isinstance(base_args, dict):
+                            if 'user_id' in base_args:
+                                for user_id_candidate in candidate_user_ids:
+                                    if base_args.get('user_id') == user_id_candidate:
+                                        continue
+                                    aligned_args = dict(base_args)
+                                    aligned_args['user_id'] = user_id_candidate
+                                    arg_variants.append(aligned_args)
+
+                                if str(base_args.get('user_id')).strip().lower() == 'me':
+                                    removed_user_id_args = dict(base_args)
+                                    removed_user_id_args.pop('user_id', None)
+                                    arg_variants.append(removed_user_id_args)
+                            else:
+                                for user_id_candidate in candidate_user_ids:
+                                    with_user_id_args = dict(base_args)
+                                    with_user_id_args['user_id'] = user_id_candidate
+                                    arg_variants.append(with_user_id_args)
+
+                        deduped_variants = []
+                        seen_signatures = set()
+                        for variant in arg_variants:
+                            try:
+                                signature = json.dumps(variant or {}, sort_keys=True, default=str)
+                            except Exception:
+                                signature = repr(variant)
+                            if signature in seen_signatures:
+                                continue
+                            seen_signatures.add(signature)
+                            deduped_variants.append(variant)
+
                         logger.debug(
                             f"⚡ [MCP EXEC] Trying Composio profile {resolved_profile_id} for {tool_name}"
                         )
                         async with streamablehttp_client(runtime_url) as (read, write, _):
                             async with ClientSession(read, write) as session:
                                 await session.initialize()
-                                result = await session.call_tool(tool_name, arguments=args)
-                                content = self._extract_result_content(result)
 
-                                if resolved_profile_id != preferred_profile_id:
-                                    logger.info(
-                                        f"⚡ [MCP EXEC] Fallback Composio profile resolved for {tool_name}: "
-                                        f"{preferred_profile_id} -> {resolved_profile_id}"
-                                    )
-                                    custom_config['profile_id'] = resolved_profile_id
+                                last_variant_error = None
+                                for variant in deduped_variants:
+                                    try:
+                                        result = await session.call_tool(tool_name, arguments=variant)
+                                        content = self._extract_result_content(result)
 
-                                return ToolResult(success=True, output=str(content))
+                                        if resolved_profile_id != preferred_profile_id:
+                                            logger.info(
+                                                f"⚡ [MCP EXEC] Fallback Composio profile resolved for {tool_name}: "
+                                                f"{preferred_profile_id} -> {resolved_profile_id}"
+                                            )
+                                            custom_config['profile_id'] = resolved_profile_id
+
+                                        if variant != base_args:
+                                            logger.info(
+                                                f"⚡ [MCP EXEC] Applied argument alignment retry for {tool_name} "
+                                                f"(profile {resolved_profile_id})"
+                                            )
+
+                                        return ToolResult(success=True, output=str(content))
+                                    except Exception as variant_error:
+                                        formatted_variant_error = _format_exception(variant_error)
+                                        last_variant_error = variant_error
+
+                                        mismatch_text = "connected account user id does not match the provided user id"
+                                        if (
+                                            mismatch_text in formatted_variant_error.lower()
+                                            and variant is not deduped_variants[-1]
+                                        ):
+                                            logger.warning(
+                                                f"⚠️ [MCP EXEC] User-id mismatch for {tool_name}; trying aligned args variant"
+                                            )
+                                            continue
+
+                                        if variant is not deduped_variants[-1]:
+                                            continue
+
+                                if last_variant_error:
+                                    raise last_variant_error
                     except Exception as candidate_error:
                         formatted_error = _format_exception(candidate_error)
                         if not refresh_attempted:
