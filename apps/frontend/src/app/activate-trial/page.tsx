@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { CreditCard, Zap, Shield, ArrowRight, CheckCircle, LogOut } from 'lucide-react';
 import { KortixLoader } from '@/components/ui/kortix-loader';
 import { toast } from '@/lib/toast';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, useEffect, Suspense, lazy } from 'react';
 import { useTrialStatus, useStartTrial, useAccountState } from '@/hooks/billing';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -41,6 +41,7 @@ function ActivateTrialSkeleton() {
 
 export default function ActivateTrialPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user } = useAuth();
   const [startTrialError, setStartTrialError] = useState<string | null>(null);
   const { data: accountState, isLoading: isLoadingSubscription } = useAccountState({ enabled: !!user });
@@ -51,6 +52,13 @@ export default function ActivateTrialPage() {
   const isAdmin = adminRoleData?.isAdmin ?? false;
 
   useEffect(() => {
+    // Fallback safety: if Stripe or middleware lands us back on /activate-trial?trial=started,
+    // bounce to dashboard where post-checkout state is resolved.
+    if (searchParams.get('trial') === 'started') {
+      router.replace('/dashboard?trial=started');
+      return;
+    }
+
     if (!isLoadingSubscription && !isLoadingTrial && accountState && trialStatus) {
       const hasActiveTrial = trialStatus.has_trial && trialStatus.trial_status === 'active';
       const hasUsedTrial = trialStatus.trial_status === 'used' ||
@@ -68,13 +76,13 @@ export default function ActivateTrialPage() {
         router.push('/subscription');
       }
     }
-  }, [accountState, trialStatus, isLoadingSubscription, isLoadingTrial, router]);
+  }, [accountState, trialStatus, isLoadingSubscription, isLoadingTrial, router, searchParams]);
 
   const handleStartTrial = async () => {
     setStartTrialError(null);
     try {
       const result = await startTrialMutation.mutateAsync({
-        success_url: `${window.location.origin}/dashboard?trial=started`,
+        success_url: `${window.location.origin}/dashboard?trial=started&session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${window.location.origin}/activate-trial`,
       });
 

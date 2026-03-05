@@ -197,7 +197,7 @@ function resolveBaseUrl(request: NextRequest) {
   const configuredPublicUrl = process.env.NEXT_PUBLIC_URL?.trim()
   const requestOrigin = request.nextUrl.origin
 
-  if (process.env.NODE_ENV === 'production' && configuredPublicUrl) {
+  if (configuredPublicUrl && !isInternalOrigin(configuredPublicUrl)) {
     return configuredPublicUrl
   }
 

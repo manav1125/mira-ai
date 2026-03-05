@@ -280,6 +280,20 @@ export async function middleware(request: NextRequest) {
     // NOTE: Middleware is server-side code, so direct Supabase queries are acceptable here
     // for performance reasons. Only client-side (browser) code should use backend API.
     if (PROTECTED_ROUTES.some(route => pathname.startsWith(route))) {
+      // Allow immediate return to dashboard after checkout while webhook/account sync catches up.
+      // This prevents a redirect loop back to trial/subscription pages right after successful Stripe payment.
+      const subscriptionParam = request.nextUrl.searchParams.get('subscription');
+      const trialParam = request.nextUrl.searchParams.get('trial');
+      const isCheckoutReturn =
+        pathname === '/dashboard' &&
+        (subscriptionParam === 'success' ||
+          subscriptionParam === 'activated' ||
+          trialParam === 'started');
+
+      if (isCheckoutReturn) {
+        return supabaseResponse;
+      }
+
       const { data: accounts } = await supabase
         .schema('basejump')
         .from('accounts')
@@ -288,13 +302,8 @@ export async function middleware(request: NextRequest) {
         .eq('primary_owner_user_id', user.id)
         .single();
 
-      if (!accounts) {
-        const url = request.nextUrl.clone();
-        url.pathname = '/activate-trial';
-        return NextResponse.redirect(url);
-      }
-
-      const accountId = accounts.id;
+      // Fallback to user.id for legacy/misaligned account linkage during migration periods.
+      const accountId = accounts?.id ?? user.id;
       const { data: creditAccount } = await supabase
         .from('credit_accounts')
         .select('tier, trial_status, trial_ends_at')
@@ -313,10 +322,12 @@ export async function middleware(request: NextRequest) {
         if (hasUsedTrial) {
           const url = request.nextUrl.clone();
           url.pathname = '/subscription';
+          url.search = '';
           return NextResponse.redirect(url);
         } else {
           const url = request.nextUrl.clone();
           url.pathname = '/activate-trial';
+          url.search = '';
           return NextResponse.redirect(url);
         }
       }
@@ -327,13 +338,6 @@ export async function middleware(request: NextRequest) {
       const trialExpired = creditAccount.trial_status === 'expired' || creditAccount.trial_status === 'cancelled';
       const trialConverted = creditAccount.trial_status === 'converted';
       
-      // If user is coming from Stripe checkout with subscription=success, allow access to dashboard
-      // The webhook might not have processed yet, but we should still allow them to see the success page
-      const subscriptionSuccess = request.nextUrl.searchParams.get('subscription') === 'success';
-      if (subscriptionSuccess && pathname === '/dashboard') {
-        return supabaseResponse;
-      }
-      
       if (hasPaidTier || hasFreeTier) {
         return supabaseResponse;
       }
@@ -341,10 +345,12 @@ export async function middleware(request: NextRequest) {
       if (!hasPaidTier && !hasFreeTier && !hasActiveTrial && !trialConverted) {
         const url = request.nextUrl.clone();
         url.pathname = '/subscription';
+        url.search = '';
         return NextResponse.redirect(url);
       } else if ((trialExpired || trialConverted) && !hasPaidTier && !hasFreeTier) {
         const url = request.nextUrl.clone();
         url.pathname = '/subscription';
+        url.search = '';
         return NextResponse.redirect(url);
       }
     }
