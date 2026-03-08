@@ -1155,6 +1155,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandles, ChatInputProps>(
         '**Presentation Quality Workflow (Required):**',
         '- Do real research before building slides: batch web search, then create a slide outline with one strong idea per slide',
         '- For slide visuals, prefer strong local assets or let create_slide generate a premium slide visual; avoid weak placeholder imagery',
+        '- Never keep placeholder labels or filler copy such as template names, example slide titles, lorem ipsum, or random unrelated brand names',
         '- For custom slides, download topic-specific images into `presentations/images/` before calling create_slide',
         '- Do not hotlink random public image URLs directly inside slide HTML; use local workspace image paths such as `../images/...`',
         '- Every slide must have a clear fixed 1920x1080 presentation layout, not a webpage/card grid',

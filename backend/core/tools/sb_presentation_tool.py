@@ -458,6 +458,10 @@ class SandboxPresentationTool(SandboxToolsBase):
             "brightpath",
             "yourwebsite.org",
             "lorem ipsum",
+            "slidekit",
+            "presentation system 2025",
+            "elevator pitch template",
+            "elevator pitch example",
         ]
         placeholder_hits = [marker for marker in placeholder_markers if marker in lowered]
         if placeholder_hits:
