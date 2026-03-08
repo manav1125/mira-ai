@@ -161,7 +161,31 @@ function LoginContent() {
     }
 
     if (result && typeof result === 'object' && 'message' in result) {
-      return result;
+      try {
+        const response = await backendApi.post('/auth/send-otp', { email });
+
+        if (response.success) {
+          setRegistrationSuccess(false);
+          setRegistrationEmail(email);
+          setExpiredEmailState(email);
+          setLinkExpired(true);
+          setNewCodeSent(true);
+          setOtpCode('');
+          setAutoSendError(false);
+          return { success: true };
+        }
+
+        return {
+          message:
+            response.error?.message ||
+            response.error?.detail ||
+            (result.message as string),
+        };
+      } catch (error: any) {
+        return {
+          message: error?.message || (result.message as string),
+        };
+      }
     }
 
     return result;

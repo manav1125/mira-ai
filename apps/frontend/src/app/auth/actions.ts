@@ -375,15 +375,29 @@ export async function verifyOtp(prevState: any, formData: FormData) {
   }
 
   const supabase = await createClient();
+  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedToken = token.trim();
+  let data = null;
+  let lastError: { message?: string } | null = null;
 
-  const { data, error } = await supabase.auth.verifyOtp({
-    email: email.trim().toLowerCase(),
-    token: token.trim(),
-    type: 'magiclink',
-  });
+  for (const type of ['magiclink', 'signup', 'email'] as const) {
+    const result = await supabase.auth.verifyOtp({
+      email: normalizedEmail,
+      token: normalizedToken,
+      type,
+    });
 
-  if (error) {
-    return { message: error.message || 'Invalid or expired code' };
+    if (!result.error) {
+      data = result.data;
+      lastError = null;
+      break;
+    }
+
+    lastError = result.error;
+  }
+
+  if (!data) {
+    return { message: lastError?.message || 'Invalid or expired code' };
   }
 
   // Determine if new user (for analytics)
