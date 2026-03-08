@@ -178,7 +178,6 @@ function LoginContent() {
         return {
           message:
             response.error?.message ||
-            response.error?.detail ||
             (result.message as string),
         };
       } catch (error: any) {
