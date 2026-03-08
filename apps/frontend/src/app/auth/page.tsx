@@ -129,6 +129,10 @@ function LoginContent() {
   }, [isExpired, expiredEmail, isLoading, user]);
 
   const handleAuth = async (prevState: any, formData: FormData) => {
+    if (!acceptedTerms) {
+      return { message: 'Please accept the terms and conditions' };
+    }
+
     trackSendAuthLink();
     markEmailAsUsed();
 
@@ -157,11 +161,7 @@ function LoginContent() {
     }
 
     if (result && typeof result === 'object' && 'message' in result) {
-      toast.error(t('signUpFailed'), {
-        description: result.message as string,
-        duration: 5000,
-      });
-      return {};
+      return result;
     }
 
     return result;
@@ -724,7 +724,6 @@ function LoginContent() {
                   formAction={handleAuth}
                   className="w-full h-10 sm:h-11 text-sm sm:text-base"
                   pendingText={t('sending')}
-                  disabled={!acceptedTerms}
                 >
                   {t('sendMagicLink')}
                 </SubmitButton>

@@ -42,6 +42,23 @@ function resolvePublicOrigin(originFromForm?: string | null): string {
   return 'http://localhost:3000';
 }
 
+function normalizeMagicLinkError(errorMessage?: string | null): string {
+  const normalized = (errorMessage || '').toLowerCase();
+
+  if (
+    normalized.includes('over_email_send_rate_limit') ||
+    normalized.includes('email rate limit exceeded')
+  ) {
+    return 'Auth email sending is temporarily rate-limited. Please wait a minute and try again. If this keeps happening, configure custom SMTP in Supabase.';
+  }
+
+  if (normalized.includes('email address not authorized')) {
+    return 'This Supabase project is still using the default email sender, which only delivers auth emails to authorized organization addresses. Configure custom SMTP to send magic links to any address.';
+  }
+
+  return errorMessage || 'Could not send magic link';
+}
+
 export async function signIn(prevState: any, formData: FormData) {
   const email = formData.get('email') as string;
   const returnUrl = formData.get('returnUrl') as string | undefined;
@@ -82,7 +99,7 @@ export async function signIn(prevState: any, formData: FormData) {
   });
 
   if (error) {
-    return { message: error.message || 'Could not send magic link' };
+    return { message: normalizeMagicLinkError(error.message) };
   }
 
   // Return success message - user needs to check email
@@ -141,7 +158,7 @@ export async function signUp(prevState: any, formData: FormData) {
   });
 
   if (error) {
-    return { message: error.message || 'Could not send magic link' };
+    return { message: normalizeMagicLinkError(error.message) };
   }
 
   // Return success message - user needs to check email
@@ -245,7 +262,7 @@ export async function resendMagicLink(prevState: any, formData: FormData) {
   });
 
   if (error) {
-    return { message: error.message || 'Could not send magic link' };
+    return { message: normalizeMagicLinkError(error.message) };
   }
 
   // Return success message - user needs to check email
