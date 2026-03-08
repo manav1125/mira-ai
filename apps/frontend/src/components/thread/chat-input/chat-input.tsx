@@ -1154,6 +1154,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandles, ChatInputProps>(
         '',
         '**Presentation Quality Workflow (Required):**',
         '- Do real research before building slides: batch web search, then create a slide outline with one strong idea per slide',
+        '- For slide visuals, prefer strong local assets or let create_slide generate a premium slide visual; avoid weak placeholder imagery',
         '- For custom slides, download topic-specific images into `presentations/images/` before calling create_slide',
         '- Do not hotlink random public image URLs directly inside slide HTML; use local workspace image paths such as `../images/...`',
         '- Every slide must have a clear fixed 1920x1080 presentation layout, not a webpage/card grid',
@@ -1181,10 +1182,10 @@ export const ChatInput = memo(forwardRef<ChatInputHandles, ChatInputProps>(
         `- Exact template id: ${selectedTemplate}`,
         `- Display name: ${templateDisplayName}`,
         `- First call load_template_design with template_name="${selectedTemplate}" and a presentation_name`,
-        '- Then use populate_template_slide to replace visible text and image sources on the copied slides',
-        '- Use full_file_rewrite only if you intentionally need a full structural rewrite',
-        '- Preserve the template CSS and layout structure',
-        '- Do not use create_slide for this template-based presentation',
+        '- Then use create_slide to overwrite each slide while inheriting the initialized template design system and assets',
+        '- Treat the template as a visual theme initializer, not as literal placeholder HTML to repair in place',
+        '- Use populate_template_slide only if you explicitly need exact DOM-preserving edits',
+        '- Keep the deck research-backed and visually strong from start to finish',
       ].join('\n');
     }, [selectedMode, selectedTemplate]);
 

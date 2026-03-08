@@ -3,7 +3,9 @@ from core.sandbox.tool_base import SandboxToolsBase
 from core.agentpress.thread_manager import ThreadManager
 from core.utils.logger import logger
 from core.services.http_client import get_http_client
-from typing import List, Dict, Optional, Union, TYPE_CHECKING
+from core.utils.config import get_config
+from core.billing.credits.media_integration import media_billing
+from typing import List, Dict, Optional, Union, TYPE_CHECKING, Any
 from bs4 import BeautifulSoup, NavigableString
 from html import escape
 import json
@@ -11,7 +13,9 @@ import os
 from datetime import datetime
 import re
 import asyncio
+from pathlib import Path
 from urllib.parse import unquote
+import replicate
 
 if TYPE_CHECKING:
     import httpx
@@ -27,16 +31,16 @@ if TYPE_CHECKING:
 ### PRESENTATION CREATION WORKFLOW
 
 **MANDATORY QUALITY GATES (DO NOT SKIP):**
-- If you call `load_template_design` with `presentation_name`, you MUST then use `populate_template_slide` for the copied slides (or `full_file_rewrite` only if you are intentionally doing a full structural rewrite).
-- If you are using a built-in template, do NOT use `create_slide`; template workflows must stay in the copied template files.
+- If you call `load_template_design` with `presentation_name`, you MUST then use `create_slide` to overwrite the initialized slides while inheriting the copied template's design system and assets. `populate_template_slide` is now a legacy fallback for exact template surgery only.
+- If you are using a built-in template, initialize the template first and then use `create_slide` for the actual slide output so the deck stays deterministic.
 - Never finish right after template copy; template copy is setup only, not final output.
 - Every custom slide must include a clear visual structure (styled layout, chart/table/image/iconography), not plain text-only HTML.
 - If using `../images/...` paths, ensure those files actually exist first.
 - For custom slides, do NOT hotlink public internet image URLs directly inside `<img src="">`. Download them into `presentations/images/` first or use generated workspace assets.
 
 **🚨 CRITICAL: This tool provides the create_slide function for presentations!**
-- **Use create_slide ONLY for custom-theme presentations**
-- **For template-based presentations, load the template with `presentation_name` and then use `populate_template_slide`**
+- **Use create_slide for both custom-theme decks and template-initialized decks**
+- **For template-based presentations, load the template with `presentation_name` first, then use create_slide to render each slide with the inherited template design system**
 - **NEVER** use generic create_file to create presentation slides
 - This tool is specialized for presentation creation with proper formatting, validation, and navigation
 
@@ -349,6 +353,14 @@ class SandboxPresentationTool(SandboxToolsBase):
         except:
             pass
 
+    async def _ensure_shared_images_dir(self):
+        """Ensure the shared presentations/images directory exists"""
+        shared_images_path = f"{self.workspace_path}/{self.presentations_dir}/images"
+        try:
+            await self.sandbox.fs.create_folder(shared_images_path, "755")
+        except:
+            pass
+
     async def _ensure_presentation_dir(self, presentation_name: str):
         """Ensure a specific presentation directory exists"""
         safe_name = self._sanitize_filename(presentation_name)
@@ -461,9 +473,10 @@ class SandboxPresentationTool(SandboxToolsBase):
         if class_attr_count >= 4 and not has_style_block and inline_style_count < 2:
             return (
                 "Slide content rejected because it relies on CSS classes without any accompanying styles. "
-                "This usually means template HTML was copied into create_slide. For template-based presentations, "
-                "call load_template_design with presentation_name and then update the copied slides with "
-                "populate_template_slide. For custom slides, include a <style> block or inline styles so the slide renders correctly."
+                "This usually means template HTML was copied directly into create_slide. For template-based presentations, "
+                "call load_template_design with presentation_name first, then create fresh slide content with create_slide so the deck inherits "
+                "the initialized template design system. Use populate_template_slide only for exact DOM-preserving edits. "
+                "For custom slides, include a <style> block or inline styles so the slide renders correctly."
             )
 
         return None
@@ -638,220 +651,590 @@ class SandboxPresentationTool(SandboxToolsBase):
             "image": images[0] if images else None,
         }
 
-    def _apply_visual_baseline(self, slide_content: str, slide_title: str) -> str:
-        """Auto-design simple slide fragments into a polished fixed-layout presentation slide."""
-        semantics = self._extract_slide_semantics(slide_content, slide_title)
+    def _normalize_hex_color(self, value: str) -> Optional[str]:
+        if not value:
+            return None
 
-        title_text = escape(str(semantics.get("title") or slide_title or "Slide"))
-        kicker_text = escape(str(semantics.get("kicker") or ""))
-        lead_text = escape(str(semantics.get("lead") or ""))
-        supporting = [escape(item) for item in semantics.get("supporting", []) if item]
-        key_points = [escape(item) for item in semantics.get("key_points", []) if item]
-        image = semantics.get("image") if isinstance(semantics.get("image"), dict) else None
-        image_src = escape((image or {}).get("src", ""), quote=True) if image else ""
-        image_alt = escape((image or {}).get("alt", title_text), quote=True) if image else ""
+        candidate = value.strip()
+        if not re.fullmatch(r"#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?", candidate):
+            return None
 
-        insight_cards = "".join(
+        if len(candidate) == 4:
+            candidate = "#" + "".join(char * 2 for char in candidate[1:])
+        return candidate.lower()
+
+    def _hex_to_rgb(self, color: str) -> tuple[int, int, int]:
+        normalized = self._normalize_hex_color(color) or "#000000"
+        return (
+            int(normalized[1:3], 16),
+            int(normalized[3:5], 16),
+            int(normalized[5:7], 16),
+        )
+
+    def _hex_to_rgba(self, color: str, alpha: float) -> str:
+        red, green, blue = self._hex_to_rgb(color)
+        return f"rgba({red}, {green}, {blue}, {alpha})"
+
+    def _color_luminance(self, color: str) -> float:
+        red, green, blue = self._hex_to_rgb(color)
+        return (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255
+
+    def _is_neutral_color(self, color: str) -> bool:
+        red, green, blue = self._hex_to_rgb(color)
+        return max(red, green, blue) - min(red, green, blue) < 28
+
+    def _pick_font_family(self, fonts: List[str]) -> str:
+        for font in fonts:
+            if not font:
+                continue
+
+            query_match = re.search(r"family=([^:&]+)", font)
+            if query_match:
+                family = query_match.group(1).replace("+", " ").split(":")[0].strip()
+                if family:
+                    return f"'{family}', 'Inter', sans-serif"
+
+            cleaned = re.sub(r"^@import\s+url\(.+?\)$", "", font).strip().strip("'\"")
+            if cleaned and "http" not in cleaned and len(cleaned) < 48:
+                family = cleaned.split(",")[0].strip().strip("'\"")
+                if family:
+                    return f"'{family}', 'Inter', sans-serif"
+
+        return "'Inter', sans-serif"
+
+    def _build_theme_palette(self, colors: List[str], seed_text: str) -> Dict[str, str]:
+        curated_palettes = [
+            {
+                "background": "#0f172a",
+                "surface": "#172554",
+                "accent": "#38bdf8",
+                "accent_secondary": "#8b5cf6",
+                "text": "#f8fafc",
+                "muted": "#cbd5e1",
+            },
+            {
+                "background": "#111827",
+                "surface": "#1f2937",
+                "accent": "#f97316",
+                "accent_secondary": "#fb7185",
+                "text": "#f9fafb",
+                "muted": "#d1d5db",
+            },
+            {
+                "background": "#052e2b",
+                "surface": "#0f3f3b",
+                "accent": "#34d399",
+                "accent_secondary": "#2dd4bf",
+                "text": "#ecfeff",
+                "muted": "#cce6e6",
+            },
+        ]
+
+        fallback = curated_palettes[sum(ord(char) for char in seed_text or "ventureverse") % len(curated_palettes)]
+        normalized_colors = []
+        for color in colors:
+            normalized = self._normalize_hex_color(color)
+            if normalized and normalized not in normalized_colors:
+                normalized_colors.append(normalized)
+
+        if len(normalized_colors) < 3:
+            return fallback
+
+        darkest = min(normalized_colors, key=self._color_luminance)
+        lightest = max(normalized_colors, key=self._color_luminance)
+        remaining = [color for color in normalized_colors if color not in {darkest, lightest}]
+        vivid_accents = [color for color in remaining if not self._is_neutral_color(color)]
+
+        surface = next((color for color in remaining if color != darkest), fallback["surface"])
+        accent = vivid_accents[0] if vivid_accents else fallback["accent"]
+        accent_secondary = vivid_accents[1] if len(vivid_accents) > 1 else fallback["accent_secondary"]
+
+        return {
+            "background": darkest,
+            "surface": surface,
+            "accent": accent,
+            "accent_secondary": accent_secondary,
+            "text": lightest,
+            "muted": fallback["muted"] if self._color_luminance(lightest) < 0.4 else "#cbd5e1",
+        }
+
+    def _list_template_assets(self, template_name: str) -> List[str]:
+        template_path = os.path.join(self.templates_dir, template_name)
+        if not os.path.isdir(template_path):
+            return []
+
+        asset_paths: List[str] = []
+        for root, _, files in os.walk(template_path):
+            for file_name in files:
+                if Path(file_name).suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp", ".svg"}:
+                    continue
+                relative_path = os.path.relpath(os.path.join(root, file_name), template_path).replace("\\", "/")
+                asset_paths.append(relative_path)
+
+        return sorted(asset_paths)
+
+    def _choose_template_background_asset(self, assets: List[str]) -> Optional[str]:
+        if not assets:
+            return None
+
+        preferred_keywords = ("gradient", "background", "hero", "cover", "texture", "bg")
+        scored_assets = []
+        for asset in assets:
+            lower = asset.lower()
+            score = 100
+            for index, keyword in enumerate(preferred_keywords):
+                if keyword in lower:
+                    score = index
+                    break
+            scored_assets.append((score, asset))
+
+        scored_assets.sort(key=lambda item: (item[0], item[1]))
+        return scored_assets[0][1]
+
+    async def _load_presentation_theme_context(
+        self,
+        presentation_path: str,
+        presentation_name: str,
+        presentation_title: str,
+    ) -> Dict[str, Any]:
+        metadata = await self._load_presentation_metadata(presentation_path)
+        design_system = metadata.get("template_design_system") or {}
+        palette = self._build_theme_palette(
+            design_system.get("color_palette", []) if isinstance(design_system, dict) else [],
+            presentation_title or presentation_name,
+        )
+        font_family = self._pick_font_family(
+            design_system.get("fonts", []) if isinstance(design_system, dict) else []
+        )
+        template_assets = metadata.get("template_assets") or []
+        background_asset = self._choose_template_background_asset(template_assets)
+
+        return {
+            "presentation_name": presentation_name,
+            "presentation_title": presentation_title,
+            "template_source": metadata.get("template_source"),
+            "deck_title": metadata.get("title") or presentation_title or presentation_name,
+            "font_family": font_family,
+            "palette": palette,
+            "background_asset": background_asset,
+        }
+
+    def _choose_layout_variant(self, semantics: Dict[str, object], slide_number: int) -> str:
+        title = str(semantics.get("title") or "").lower()
+        key_points = semantics.get("key_points", []) or []
+
+        if slide_number == 1 or any(token in title for token in ("title", "cover", "welcome", "intro")):
+            return "cover"
+        if any(token in title for token in ("timeline", "roadmap", "milestone", "phases", "journey")):
+            return "timeline"
+        if any(token in title for token in ("thank", "closing", "next steps", "contact")):
+            return "closing"
+        if len(key_points) >= 4:
+            return "bullet_grid"
+        return "split"
+
+    def _build_slide_visual_prompt(
+        self,
+        semantics: Dict[str, object],
+        layout_variant: str,
+        theme_context: Dict[str, Any],
+    ) -> str:
+        title = str(semantics.get("title") or "Presentation Slide").strip()
+        lead = str(semantics.get("lead") or "").strip()
+        key_points = [str(item).strip() for item in semantics.get("key_points", [])[:4] if item]
+        palette = theme_context.get("palette", {})
+
+        if layout_variant == "timeline":
+            visual_direction = "diagrammatic editorial illustration showing momentum, progression, milestones, and directional movement"
+        elif layout_variant == "closing":
+            visual_direction = "cinematic premium closing visual with confident atmosphere, elegant lighting, and aspirational mood"
+        elif layout_variant == "cover":
+            visual_direction = "high-end hero visual with a single bold focal point, premium lighting, and ample negative space"
+        else:
+            visual_direction = "presentation-grade editorial illustration blending strategic storytelling with clean data-inspired composition"
+
+        context_bits = [lead] if lead else []
+        if key_points:
+            context_bits.append("Key themes: " + "; ".join(key_points))
+
+        return (
+            f"Create a premium 16:9 keynote slide visual for '{title}'. "
+            f"{visual_direction}. "
+            + (" ".join(context_bits) + " " if context_bits else "")
+            + "Use a sophisticated palette inspired by "
+            + f"{palette.get('background', '#0f172a')}, {palette.get('accent', '#38bdf8')}, and {palette.get('accent_secondary', '#8b5cf6')}. "
+            + "The image must feel polished, strategic, and presentation-ready. "
+            + "No readable text, no letters, no UI screenshots, no memes, no watermarks, no collage. "
+            + "Leave clean compositional space so slide copy can sit clearly beside or over the visual."
+        )
+
+    async def _generate_slide_visual_asset(
+        self,
+        prompt: str,
+        presentation_name: str,
+        slide_number: int,
+    ) -> Optional[str]:
+        try:
+            config = get_config()
+            if not config.REPLICATE_API_TOKEN:
+                return None
+
+            account_id = getattr(self, "_account_id", None) or getattr(self, "account_id", None)
+            if not account_id:
+                account_id = getattr(self.thread_manager, "account_id", None)
+
+            if account_id:
+                has_credits, _, _ = await media_billing.check_credits(account_id)
+                if not has_credits:
+                    logger.warning("[PRESENTATION] Skipping visual generation due to insufficient credits")
+                    return None
+
+            await self._ensure_shared_images_dir()
+
+            output = await asyncio.to_thread(
+                replicate.run,
+                "google/nano-banana-pro",
+                input={
+                    "prompt": prompt,
+                    "aspect_ratio": "16:9",
+                    "resolution": "2K",
+                    "output_format": "png",
+                    "safety_filter_level": "block_only_high",
+                },
+            )
+
+            output_list = list(output) if hasattr(output, "__iter__") and not hasattr(output, "read") else [output]
+            if not output_list:
+                return None
+
+            first_output = output_list[0]
+            if hasattr(first_output, "read"):
+                result_bytes = first_output.read()
+            else:
+                url = str(first_output.url) if hasattr(first_output, "url") else str(first_output)
+                async with get_http_client() as client:
+                    response = await client.get(url, timeout=120.0)
+                    response.raise_for_status()
+                    result_bytes = response.content
+
+            safe_name = self._sanitize_filename(presentation_name) or "presentation"
+            file_name = f"{safe_name}_slide_{slide_number:02d}_visual.png"
+            relative_path = f"{self.presentations_dir}/images/{file_name}"
+            await self.sandbox.fs.upload_file(result_bytes, f"{self.workspace_path}/{relative_path}")
+
+            if account_id:
+                try:
+                    await media_billing.deduct_replicate_image(
+                        account_id=account_id,
+                        model="google/nano-banana-pro",
+                        count=1,
+                        description=f"Presentation visual generation for slide {slide_number}",
+                    )
+                except Exception as billing_error:
+                    logger.warning(f"[PRESENTATION] Failed to deduct credits for slide visual: {billing_error}")
+
+            return f"../images/{file_name}"
+        except Exception as exc:
+            logger.warning(f"[PRESENTATION] Failed to generate slide visual: {exc}")
+            return None
+
+    def _render_structured_slide(
+        self,
+        semantics: Dict[str, object],
+        theme_context: Dict[str, Any],
+        layout_variant: str,
+        slide_number: int,
+        visual_src: Optional[str],
+    ) -> str:
+        palette = theme_context.get("palette", {})
+        font_family = theme_context.get("font_family", "'Inter', sans-serif")
+        background_asset = theme_context.get("background_asset")
+        title_text = escape(str(semantics.get("title") or "Slide"))
+        kicker_text = escape(str(semantics.get("kicker") or "Research-backed narrative"))
+        lead_text = escape(str(semantics.get("lead") or title_text))
+        supporting = [escape(item) for item in semantics.get("supporting", [])[:2] if item]
+        key_points = [escape(item) for item in semantics.get("key_points", [])[:5] if item]
+        image_alt = title_text
+
+        primary_visual = visual_src or background_asset or ""
+        primary_visual_attr = escape(primary_visual, quote=True) if primary_visual else ""
+        backdrop_visual_attr = ""
+        if visual_src and background_asset and visual_src != background_asset:
+            backdrop_visual_attr = escape(background_asset, quote=True)
+        elif background_asset and primary_visual != background_asset:
+            backdrop_visual_attr = escape(background_asset, quote=True)
+
+        bullet_markup = "".join(
             f"""
-            <div class="vv-insight-card">
-              <div class="vv-insight-index">{index:02d}</div>
+            <div class="vv-point-card">
+              <span class="vv-point-index">{index:02d}</span>
               <p>{point}</p>
             </div>
             """
-            for index, point in enumerate(key_points[:4], start=1)
+            for index, point in enumerate(key_points, start=1)
         )
-
-        supporting_cards = "".join(
+        timeline_markup = "".join(
+            f"""
+            <div class="vv-timeline-item">
+              <div class="vv-timeline-index">{index}</div>
+              <div class="vv-timeline-copy">{point}</div>
+            </div>
+            """
+            for index, point in enumerate(key_points, start=1)
+        )
+        support_markup = "".join(
             f'<div class="vv-support-card"><p>{paragraph}</p></div>'
-            for paragraph in supporting[:2]
+            for paragraph in supporting
         )
 
         media_markup = ""
-        if image_src:
+        if primary_visual_attr:
             media_markup = f"""
-            <div class="vv-media-column">
-              <div class="vv-media-card">
-                <img src="{image_src}" alt="{image_alt or title_text}" />
-              </div>
+            <div class="vv-media-shell">
+              <img src="{primary_visual_attr}" alt="{image_alt}" class="vv-media-image" />
             </div>
             """
 
+        layout_markup = ""
+        if layout_variant == "cover":
+            layout_markup = f"""
+            <div class="vv-copy-column vv-cover-copy">
+              <p class="vv-kicker">{kicker_text}</p>
+              <h1>{title_text}</h1>
+              <p class="vv-lead">{lead_text}</p>
+              {'<div class="vv-chip-row">' + ''.join(f'<span class="vv-chip">{point}</span>' for point in key_points[:3]) + '</div>' if key_points else ''}
+            </div>
+            {media_markup}
+            """
+        elif layout_variant == "timeline":
+            layout_markup = f"""
+            <div class="vv-copy-column">
+              <p class="vv-kicker">{kicker_text}</p>
+              <h1>{title_text}</h1>
+              <p class="vv-lead">{lead_text}</p>
+              <div class="vv-timeline-list">{timeline_markup}</div>
+            </div>
+            {media_markup}
+            """
+        elif layout_variant == "closing":
+            layout_markup = f"""
+            <div class="vv-closing-panel">
+              <p class="vv-kicker">{kicker_text}</p>
+              <h1>{title_text}</h1>
+              <p class="vv-lead">{lead_text}</p>
+              {'<div class="vv-support-grid">' + support_markup + '</div>' if support_markup else ''}
+            </div>
+            {media_markup}
+            """
+        else:
+            layout_markup = f"""
+            <div class="vv-copy-column">
+              <p class="vv-kicker">{kicker_text}</p>
+              <h1>{title_text}</h1>
+              <p class="vv-lead">{lead_text}</p>
+              {'<div class="vv-points-grid">' + bullet_markup + '</div>' if bullet_markup else ''}
+              {'<div class="vv-support-grid">' + support_markup + '</div>' if support_markup else ''}
+            </div>
+            {media_markup}
+            """
+
+        backdrop_style = (
+            f'background-image: linear-gradient(135deg, {self._hex_to_rgba(palette.get("background", "#0f172a"), 0.86)}, {self._hex_to_rgba(palette.get("surface", "#172554"), 0.92)}), url("{backdrop_visual_attr}");'
+            if backdrop_visual_attr
+            else ""
+        )
+
         return f"""
 <style>
-  .vv-auto-slide {{
+  .vv-structured-slide {{
     width: 1920px;
     height: 1080px;
     box-sizing: border-box;
     position: relative;
     overflow: hidden;
+    padding: 56px;
+    color: {palette.get("text", "#f8fafc")};
+    font-family: {font_family};
     background:
-      radial-gradient(circle at 12% 18%, rgba(34, 211, 238, 0.22), transparent 34%),
-      radial-gradient(circle at 88% 14%, rgba(168, 85, 247, 0.18), transparent 28%),
-      linear-gradient(135deg, #0f172a 0%, #111827 45%, #1e293b 100%);
-    color: #f8fafc;
-    padding: 72px;
+      radial-gradient(circle at 12% 16%, {self._hex_to_rgba(palette.get("accent", "#38bdf8"), 0.22)}, transparent 32%),
+      radial-gradient(circle at 88% 14%, {self._hex_to_rgba(palette.get("accent_secondary", "#8b5cf6"), 0.18)}, transparent 28%),
+      linear-gradient(135deg, {palette.get("background", "#0f172a")} 0%, {palette.get("surface", "#172554")} 100%);
+    {backdrop_style}
+    background-size: cover;
+    background-position: center;
   }}
-  .vv-auto-slide * {{
+  .vv-structured-slide * {{
     box-sizing: border-box;
+    font-family: inherit;
   }}
-  .vv-auto-slide .vv-frame {{
+  .vv-shell {{
     position: relative;
-    z-index: 2;
     width: 100%;
     height: 100%;
-    border-radius: 36px;
-    border: 1px solid rgba(148, 163, 184, 0.24);
-    background: linear-gradient(160deg, rgba(15, 23, 42, 0.82), rgba(30, 41, 59, 0.78));
-    box-shadow: 0 30px 80px rgba(15, 23, 42, 0.32);
+    border-radius: 38px;
+    overflow: hidden;
+    border: 1px solid {self._hex_to_rgba(palette.get("text", "#f8fafc"), 0.12)};
+    background: linear-gradient(160deg, {self._hex_to_rgba(palette.get("background", "#0f172a"), 0.86)}, {self._hex_to_rgba(palette.get("surface", "#172554"), 0.72)});
+    box-shadow: 0 36px 100px {self._hex_to_rgba(palette.get("background", "#0f172a"), 0.35)};
     display: grid;
-    grid-template-columns: 1.12fr 0.88fr;
-    gap: 36px;
-    padding: 56px;
+    grid-template-columns: {("1.05fr 0.95fr" if layout_variant in {"cover", "split", "timeline"} else "1fr 0.85fr") if primary_visual_attr else "1fr"};
+    gap: 28px;
+    padding: 54px;
   }}
-  .vv-auto-slide.no-media .vv-frame {{
-    grid-template-columns: 1fr;
-  }}
-  .vv-auto-slide .vv-decor {{
-    position: absolute;
-    border-radius: 9999px;
-    filter: blur(6px);
-    opacity: 0.3;
-  }}
-  .vv-auto-slide .vv-decor.one {{
-    width: 360px;
-    height: 360px;
-    top: -110px;
-    right: -90px;
-    background: radial-gradient(circle at 30% 30%, rgba(96, 165, 250, 0.9), rgba(59, 130, 246, 0.15) 72%);
-  }}
-  .vv-auto-slide .vv-decor.two {{
-    width: 320px;
-    height: 320px;
-    left: -90px;
-    bottom: -80px;
-    background: radial-gradient(circle at 30% 30%, rgba(52, 211, 153, 0.85), rgba(16, 185, 129, 0.12) 72%);
-  }}
-  .vv-auto-slide .vv-copy-column {{
+  .vv-copy-column,
+  .vv-closing-panel {{
+    min-width: 0;
     display: flex;
     flex-direction: column;
-    min-width: 0;
+    justify-content: center;
     gap: 24px;
+    position: relative;
+    z-index: 2;
   }}
-  .vv-auto-slide .vv-kicker {{
+  .vv-kicker {{
     margin: 0;
     font-size: 16px;
     line-height: 1.2;
     letter-spacing: 0.2em;
     text-transform: uppercase;
-    color: #7dd3fc;
+    color: {palette.get("accent", "#38bdf8")};
     font-weight: 700;
   }}
-  .vv-auto-slide h1 {{
+  .vv-structured-slide h1 {{
     margin: 0;
-    font-size: 72px;
-    line-height: 0.98;
-    letter-spacing: -0.04em;
-    color: #f8fafc;
+    max-width: 940px;
+    font-size: {("88px" if layout_variant == "cover" else "66px")};
+    line-height: 0.96;
+    letter-spacing: -0.05em;
     font-weight: 800;
-    max-width: 900px;
   }}
-  .vv-auto-slide .vv-lead {{
+  .vv-lead {{
     margin: 0;
-    max-width: 820px;
+    max-width: 860px;
     font-size: 28px;
     line-height: 1.45;
-    color: #dbeafe;
+    color: {palette.get("muted", "#cbd5e1")};
     font-weight: 500;
   }}
-  .vv-auto-slide .vv-insights {{
+  .vv-chip-row {{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+  }}
+  .vv-chip {{
+    border-radius: 999px;
+    padding: 12px 18px;
+    background: {self._hex_to_rgba(palette.get("accent", "#38bdf8"), 0.14)};
+    border: 1px solid {self._hex_to_rgba(palette.get("accent", "#38bdf8"), 0.28)};
+    font-size: 18px;
+    color: {palette.get("text", "#f8fafc")};
+  }}
+  .vv-points-grid,
+  .vv-support-grid {{
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 18px;
-    margin-top: 10px;
   }}
-  .vv-auto-slide .vv-insight-card,
-  .vv-auto-slide .vv-support-card {{
-    position: relative;
-    min-height: 150px;
+  .vv-point-card,
+  .vv-support-card,
+  .vv-timeline-item {{
+    border-radius: 26px;
     padding: 22px 22px 24px;
-    border-radius: 24px;
-    border: 1px solid rgba(148, 163, 184, 0.18);
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(148, 163, 184, 0.08));
-    backdrop-filter: blur(10px);
+    border: 1px solid {self._hex_to_rgba(palette.get("text", "#f8fafc"), 0.12)};
+    background: linear-gradient(180deg, {self._hex_to_rgba(palette.get("text", "#f8fafc"), 0.07)}, {self._hex_to_rgba(palette.get("surface", "#172554"), 0.18)});
+    backdrop-filter: blur(12px);
   }}
-  .vv-auto-slide .vv-insight-index {{
-    font-size: 14px;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: #93c5fd;
-    margin-bottom: 12px;
+  .vv-point-index,
+  .vv-timeline-index {{
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    margin-bottom: 14px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, {palette.get("accent", "#38bdf8")}, {palette.get("accent_secondary", "#8b5cf6")});
+    color: #ffffff;
+    font-size: 15px;
     font-weight: 700;
+    letter-spacing: 0.08em;
   }}
-  .vv-auto-slide .vv-insight-card p,
-  .vv-auto-slide .vv-support-card p {{
+  .vv-point-card p,
+  .vv-support-card p,
+  .vv-timeline-copy {{
     margin: 0;
     font-size: 23px;
     line-height: 1.45;
-    color: #e2e8f0;
+    color: {palette.get("text", "#f8fafc")};
   }}
-  .vv-auto-slide .vv-support-grid {{
+  .vv-timeline-list {{
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 18px;
+    grid-template-columns: 1fr;
+    gap: 14px;
   }}
-  .vv-auto-slide .vv-media-column {{
+  .vv-media-shell {{
+    position: relative;
     min-width: 0;
-    display: flex;
-    align-items: stretch;
-  }}
-  .vv-auto-slide .vv-media-card {{
-    width: 100%;
-    min-height: 100%;
-    border-radius: 30px;
+    min-height: 0;
+    border-radius: 32px;
     overflow: hidden;
-    border: 1px solid rgba(148, 163, 184, 0.18);
-    background:
-      linear-gradient(180deg, rgba(30, 41, 59, 0.66), rgba(15, 23, 42, 0.92)),
-      linear-gradient(135deg, rgba(34, 211, 238, 0.18), rgba(168, 85, 247, 0.16));
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 18px;
+    border: 1px solid {self._hex_to_rgba(palette.get("text", "#f8fafc"), 0.12)};
+    background: linear-gradient(180deg, {self._hex_to_rgba(palette.get("surface", "#172554"), 0.82)}, {self._hex_to_rgba(palette.get("background", "#0f172a"), 0.96)});
   }}
-  .vv-auto-slide .vv-media-card img {{
+  .vv-media-image {{
     width: 100%;
     height: 100%;
     object-fit: cover;
-    border-radius: 22px;
+    display: block;
   }}
-  .vv-auto-slide .vv-footer-bar {{
+  .vv-shell::after {{
+    content: "Slide {slide_number:02d}";
     position: absolute;
-    left: 56px;
-    right: 56px;
-    bottom: 36px;
-    height: 6px;
-    border-radius: 9999px;
-    background: linear-gradient(90deg, #22d3ee, #38bdf8, #34d399);
-    opacity: 0.9;
+    left: 54px;
+    bottom: 28px;
+    font-size: 15px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: {self._hex_to_rgba(palette.get("text", "#f8fafc"), 0.55)};
   }}
 </style>
-<div class="vv-auto-slide {'with-media' if image_src else 'no-media'}">
-  <div class="vv-decor one"></div>
-  <div class="vv-decor two"></div>
-  <div class="vv-frame">
-    <div class="vv-copy-column">
-      <p class="vv-kicker">{kicker_text or 'Research-backed narrative'}</p>
-      <h1>{title_text}</h1>
-      <p class="vv-lead">{lead_text or title_text}</p>
-      {'<div class="vv-insights">' + insight_cards + '</div>' if insight_cards else ''}
-      {'<div class="vv-support-grid">' + supporting_cards + '</div>' if supporting_cards else ''}
-    </div>
-    {media_markup}
-    <div class="vv-footer-bar"></div>
+<div class="vv-structured-slide vv-{layout_variant}">
+  <div class="vv-shell">
+    {layout_markup}
   </div>
 </div>
 """
+
+    async def _apply_visual_baseline(
+        self,
+        slide_content: str,
+        slide_title: str,
+        presentation_name: str,
+        presentation_title: str,
+        slide_number: int,
+        theme_context: Dict[str, Any],
+    ) -> str:
+        """Auto-design simple slide fragments into a polished fixed-layout presentation slide."""
+        semantics = self._extract_slide_semantics(slide_content, slide_title)
+        layout_variant = self._choose_layout_variant(semantics, slide_number)
+
+        image = semantics.get("image") if isinstance(semantics.get("image"), dict) else None
+        visual_src = (image or {}).get("src") if image else None
+        if not visual_src:
+            visual_prompt = self._build_slide_visual_prompt(semantics, layout_variant, theme_context)
+            visual_src = await self._generate_slide_visual_asset(
+                prompt=visual_prompt,
+                presentation_name=presentation_name,
+                slide_number=slide_number,
+            )
+
+        return self._render_structured_slide(
+            semantics=semantics,
+            theme_context=theme_context,
+            layout_variant=layout_variant,
+            slide_number=slide_number,
+            visual_src=visual_src,
+        )
 
     def _create_slide_html(self, slide_content: str, slide_number: int, total_slides: int, presentation_title: str) -> str:
         """Create a basic HTML document with Google Fonts"""
@@ -1105,7 +1488,7 @@ class SandboxPresentationTool(SandboxToolsBase):
         "type": "function",
         "function": {
             "name": "load_template_design",
-            "description": "Load complete design reference from a presentation template including all slide HTML and extracted style patterns (colors, fonts, layouts). If presentation_name is provided, the entire template will be copied to /workspace/presentations/{presentation_name}/ so you can preserve the template and then update visible text/image content with populate_template_slide. The visual design must remain identical; only text/data/image sources should change. Otherwise, use this template as DESIGN INSPIRATION ONLY - study the visual styling, CSS patterns, and layout structure to create your own original slides with similar aesthetics but completely different content.",
+            "description": "Load complete design reference from a presentation template including all slide HTML and extracted style patterns (colors, fonts, layouts). If presentation_name is provided, the entire template will be copied to /workspace/presentations/{presentation_name}/ so you can initialize a themed presentation and then use create_slide to overwrite slides with researched content while inheriting the template's design system and assets. Otherwise, use this template as DESIGN INSPIRATION ONLY - study the visual styling, CSS patterns, and layout structure to create your own original slides with similar aesthetics but completely different content.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1203,28 +1586,21 @@ class SandboxPresentationTool(SandboxToolsBase):
                 response_data["presentation_name"] = safe_name
                 response_data["copied_to_workspace"] = True
                 response_data["requires_follow_up_edit"] = True
-                response_data["required_next_tool"] = "populate_template_slide"
-                response_data["note"] = f"Template copied to /workspace/{self.presentations_dir}/{safe_name}/. **CRITICAL**: Prefer populate_template_slide to replace visible text and image sources while preserving the template DOM/CSS. Use full_file_rewrite only if you intentionally need a full structural rewrite. The template's visual design must remain identical."
+                response_data["required_next_tool"] = "create_slide"
+                response_data["note"] = f"Template copied to /workspace/{self.presentations_dir}/{safe_name}/. **CRITICAL**: Use create_slide for the actual deck output. The initialized presentation now carries the template's design system and assets so create_slide can overwrite each slide with researched content while keeping the template's visual direction. Use populate_template_slide only for advanced exact-template surgery."
                 response_data["usage_instructions"] = {
-                    "purpose": "TEMPLATE COPIED TO WORKSPACE - Replace only content, preserve ALL design/styling",
+                    "purpose": "TEMPLATE INITIALIZED - Use create_slide to render researched slides with inherited template styling",
                     "do": [
-                        "Use populate_template_slide to replace visible text strings and image sources on the copied slides",
-                        "ONLY modify text content inside HTML elements (headings, paragraphs, list items, data values)",
-                        "Replace placeholder/example data with actual presentation content",
-                        "Keep ALL <img>, <svg>, icon elements - only update src/alt attributes to point to your images",
-                        "Keep the exact same number and type of elements (if template has 3 logo images, keep 3 <img> tags)",
-                        "Preserve the content structure - if it's a list, keep it a list; if it's images, keep images",
-                        "Use full_file_rewrite only as a fallback when a full slide rewrite is truly necessary"
+                        "Use create_slide on this same presentation_name to overwrite each copied slide with researched content",
+                        "Let create_slide inherit the template colors, fonts, and background assets from the initialized deck",
+                        "Use local workspace images such as ../images/... or let the slide renderer generate a premium visual when needed",
+                        "Use populate_template_slide only when you specifically need exact DOM-preserving text swaps"
                     ],
                     "dont": [
-                        "NEVER modify <style> blocks or CSS styling - preserve them 100% exactly as-is",
-                        "NEVER change class names, colors, fonts, gradients, or any design properties",
-                        "NEVER change the HTML structure or layout patterns (flex, grid, positioning)",
-                        "NEVER add/remove major structural elements (containers, sections, wrappers)",
-                        "NEVER replace images with text - if template has <img> tags, keep them and only update src/alt",
-                        "NEVER remove visual elements like images, icons, SVGs, or graphics - only update their content/sources",
-                        "NEVER use create_slide tool - it's only for custom themes, NOT templates",
-                        "NEVER change the visual design - colors, fonts, spacing, sizes must stay identical"
+                        "Do not end the workflow right after template copy",
+                        "Do not keep template placeholder text or example labels",
+                        "Do not rely on exact text-matching surgery unless you intentionally need populate_template_slide",
+                        "Do not use create_file for slide HTML"
                     ]
                 }
             else:
@@ -1247,6 +1623,15 @@ class SandboxPresentationTool(SandboxToolsBase):
                 }
                 response_data["note"] = "This template provides ALL slides and extracted design patterns in one response. Study the HTML and CSS to understand the design system, then create your own original slides with similar visual styling. To edit this template directly, provide a presentation_name parameter."
             
+            if presentation_path:
+                presentation_lock = await self._get_metadata_lock(presentation_path)
+                async with presentation_lock:
+                    copied_metadata = await self._load_presentation_metadata(presentation_path)
+                    copied_metadata["template_source"] = template_name
+                    copied_metadata["template_design_system"] = response_data["design_system"]
+                    copied_metadata["template_assets"] = self._list_template_assets(template_name)
+                    await self._save_presentation_metadata(presentation_path, copied_metadata)
+
             return self.success_response(response_data)
             
         except Exception as e:
@@ -1326,7 +1711,7 @@ class SandboxPresentationTool(SandboxToolsBase):
         "type": "function",
         "function": {
             "name": "populate_template_slide",
-            "description": "Safely replace visible text and image sources inside a copied template slide while preserving the template DOM, CSS, classes, layout, and visual styling. Use this after load_template_design with presentation_name. **WHEN TO USE**: Preferred tool for template-based presentations. **WHEN TO SKIP**: Do not use for custom-theme decks - use create_slide instead. **🚨 PARAMETER NAMES**: Use EXACTLY these parameter names: `presentation_name` (REQUIRED), `slide_number` (REQUIRED), `slide_title` (REQUIRED), `text_replacements` (optional), `image_replacements` (optional), `presentation_title` (optional).",
+            "description": "Safely replace visible text and image sources inside a copied template slide while preserving the template DOM, CSS, classes, layout, and visual styling. Use this after load_template_design with presentation_name only when you explicitly need exact DOM-preserving edits. For most template-based presentations, use create_slide after load_template_design so the renderer can inherit the template design system without brittle text matching. **🚨 PARAMETER NAMES**: Use EXACTLY these parameter names: `presentation_name` (REQUIRED), `slide_number` (REQUIRED), `slide_title` (REQUIRED), `text_replacements` (optional), `image_replacements` (optional), `presentation_title` (optional).",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1524,7 +1909,7 @@ class SandboxPresentationTool(SandboxToolsBase):
         "type": "function",
         "function": {
             "name": "create_slide",
-            "description": "Create or update a single slide in a presentation. **WHEN TO USE**: This tool is ONLY for custom theme presentations (when no template is selected). **WHEN TO SKIP**: Do NOT use this tool for template-based presentations - use populate_template_slide on copied template files instead. **PARALLEL EXECUTION**: This function supports parallel execution - create ALL slides simultaneously by using create_slide multiple times in parallel for much faster completion. Each slide is saved as a standalone HTML file with 1920x1080 dimensions (16:9 aspect ratio). Slides are automatically validated to ensure both width (≤1920px) and height (≤1080px) limits are met. Use `box-sizing: border-box` on containers with padding to prevent dimension overflow. **CRITICAL**: For custom theme presentations, you MUST have completed Phase 3 (research, content outline, image search, and ALL image downloads) before using this tool. All styling MUST be derived from the custom color scheme and design elements defined in Phase 2. **IMAGE RULE**: Do not hotlink public internet image URLs directly in slide HTML - download them into presentations/images/ first. **PRESENTATION DESIGN NOT WEBSITE**: Use fixed pixel dimensions, absolute positioning, and fixed layouts - NO responsive design patterns. **🚨 PARAMETER NAMES**: Use EXACTLY these parameter names: `presentation_name` (REQUIRED), `slide_number` (REQUIRED), `slide_title` (REQUIRED), `content` (REQUIRED), `presentation_title` (optional). **❌ DO NOT USE**: `file_path` - this parameter does NOT exist!",
+            "description": "Create or update a single slide in a presentation. **WHEN TO USE**: Use this for both custom-theme decks and template-initialized decks. If a template was initialized via load_template_design with presentation_name, this tool will inherit the template's design system and assets when rendering the slide. **WHEN TO SKIP**: Only skip this if you explicitly need exact DOM-preserving edits inside the copied template, in which case use populate_template_slide. **PARALLEL EXECUTION**: This function supports parallel execution - create ALL slides simultaneously by using create_slide multiple times in parallel for much faster completion. Each slide is saved as a standalone HTML file with 1920x1080 dimensions (16:9 aspect ratio). Slides are automatically validated to ensure both width (≤1920px) and height (≤1080px) limits are met. Use `box-sizing: border-box` on containers with padding to prevent dimension overflow. **CRITICAL**: You MUST have completed research, outline, and visual planning before using this tool. All styling MUST be derived from the custom color scheme/design elements or the initialized template design system. **IMAGE RULE**: Do not hotlink public internet image URLs directly in slide HTML - download them into presentations/images/ first. **PRESENTATION DESIGN NOT WEBSITE**: Use fixed pixel dimensions, absolute positioning, and fixed layouts - NO responsive design patterns. **🚨 PARAMETER NAMES**: Use EXACTLY these parameter names: `presentation_name` (REQUIRED), `slide_number` (REQUIRED), `slide_title` (REQUIRED), `content` (REQUIRED), `presentation_title` (optional). **❌ DO NOT USE**: `file_path` - this parameter does NOT exist!",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1695,11 +2080,26 @@ class SandboxPresentationTool(SandboxToolsBase):
             
             # Ensure presentation directory exists
             safe_name, presentation_path = await self._ensure_presentation_dir(presentation_name)
+            theme_context = await self._load_presentation_theme_context(
+                presentation_path=presentation_path,
+                presentation_name=presentation_name,
+                presentation_title=presentation_title,
+            )
+            effective_presentation_title = presentation_title
+            if effective_presentation_title == "Presentation":
+                effective_presentation_title = str(theme_context.get("deck_title") or presentation_name or "Presentation")
             
             # Auto-apply a curated visual shell when the model returns low-structure slide fragments.
             final_content = content
             if self._is_plain_slide_content(content) or self._should_auto_design_slide(content):
-                final_content = self._apply_visual_baseline(content, slide_title)
+                final_content = await self._apply_visual_baseline(
+                    slide_content=content,
+                    slide_title=slide_title,
+                    presentation_name=presentation_name,
+                    presentation_title=effective_presentation_title,
+                    slide_number=slide_number,
+                    theme_context=theme_context,
+                )
 
             # Parallel create_slide calls can race and overwrite metadata.
             # Serialize write operations per presentation to keep all slide entries.
@@ -1710,13 +2110,15 @@ class SandboxPresentationTool(SandboxToolsBase):
                 metadata["presentation_name"] = presentation_name
                 if presentation_title != "Presentation":  # Only update if explicitly provided
                     metadata["title"] = presentation_title
+                elif not metadata.get("title") or metadata.get("title") == "Presentation":
+                    metadata["title"] = presentation_name
 
                 # Create slide HTML
                 slide_html = self._create_slide_html(
                     slide_content=final_content,
                     slide_number=slide_number,
                     total_slides=0,  # Will be updated when regenerating navigation
-                    presentation_title=presentation_title
+                    presentation_title=effective_presentation_title
                 )
 
                 # Save slide file

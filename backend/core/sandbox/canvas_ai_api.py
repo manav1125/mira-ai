@@ -575,7 +575,7 @@ async def generate_images(
     user_id: str = Depends(verify_and_get_user_id_from_jwt)
 ):
     """
-    Generate images from text prompt using Flux Schnell (fast generation).
+    Generate images from text prompt using Nano Banana Pro via Replicate.
     Returns multiple images as base64.
     """
     logger.info(f"Canvas AI: Generating {request.num_images} images for user {user_id}")
@@ -599,42 +599,31 @@ async def generate_images(
         _get_replicate_token()
         
         num_to_generate = min(request.num_images, 4)
-        logger.info(f"Generating {num_to_generate} images with flux-schnell")
-        
-        try:
-            # Wrap replicate.run() in thread pool to avoid blocking event loop
-            output = await asyncio.to_thread(
-                replicate.run,
-                "black-forest-labs/flux-schnell",
-                input={
-                    "prompt": request.prompt,
-                    "aspect_ratio": request.aspect_ratio,
-                    "num_outputs": num_to_generate,
-                    "output_format": "webp",
-                    "output_quality": 90,
-                    "go_fast": True,
-                }
-            )
-            
-            # Output can be a list or iterator of FileOutput objects
-            generated_images: list[str] = []
-            
-            # Convert to list if it's an iterator
-            output_list = list(output) if hasattr(output, '__iter__') else [output]
-            logger.info(f"Replicate returned {len(output_list)} outputs")
-            
-            for img_output in output_list:
-                try:
-                    image_b64 = _replicate_output_to_base64(img_output, "webp")
-                    generated_images.append(image_b64)
-                except Exception as e:
-                    logger.error(f"Failed to process output: {e}")
-                    continue
-                
-        except Exception as e:
-            logger.error(f"Flux generation failed: {e}")
-            return ImageGenerateResponse(success=False, error=str(e)[:150])
-        
+        logger.info(f"Generating {num_to_generate} image(s) with google/nano-banana-pro")
+
+        async def generate_single_image() -> Optional[str]:
+            try:
+                output = await asyncio.to_thread(
+                    replicate.run,
+                    "google/nano-banana-pro",
+                    input={
+                        "prompt": request.prompt,
+                        "aspect_ratio": request.aspect_ratio,
+                        "resolution": "2K",
+                        "output_format": "png",
+                        "safety_filter_level": "block_only_high",
+                    }
+                )
+                output_list = list(output) if hasattr(output, '__iter__') and not hasattr(output, 'read') else [output]
+                if not output_list:
+                    return None
+                return _replicate_output_to_base64(output_list[0], "png")
+            except Exception as exc:
+                logger.error(f"Nano Banana generation failed for one image: {exc}")
+                return None
+
+        generated_images = [image for image in await asyncio.gather(*[generate_single_image() for _ in range(num_to_generate)]) if image]
+
         if len(generated_images) == 0:
             return ImageGenerateResponse(
                 success=False,
@@ -644,7 +633,7 @@ async def generate_images(
         # BILLING: Deduct credits for successful generation
         await media_billing.deduct_replicate_image(
             account_id=user_id,
-            model="black-forest-labs/flux-schnell",
+            model="google/nano-banana-pro",
             count=len(generated_images),
             description=f"Canvas image generation ({len(generated_images)} images)",
         )
