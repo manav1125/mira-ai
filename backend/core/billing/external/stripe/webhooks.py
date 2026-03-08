@@ -24,18 +24,18 @@ class WebhookService:
         try:
             payload = await request.body()
             sig_header = request.headers.get('stripe-signature')
-            
+
             if not config.STRIPE_WEBHOOK_SECRET:
                 raise HTTPException(status_code=500, detail="Webhook secret not configured")
-            
+
             try:
                 event = stripe.Webhook.construct_event(
                     payload, sig_header, config.STRIPE_WEBHOOK_SECRET,
                     tolerance=60
                 )
-            except stripe.error.SignatureVerificationError as e:
+            except stripe.error.SignatureVerificationError:
                 raise HTTPException(status_code=400, detail="Invalid webhook signature")
-            except ValueError as e:
+            except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid payload")
 
             can_process, reason = await WebhookLock.check_and_mark_webhook_processing(
@@ -88,6 +88,8 @@ class WebhookService:
             
             return {'status': 'success'}
         
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"[WEBHOOK] Error processing webhook: {e}")
             
@@ -103,7 +105,8 @@ class WebhookService:
             
             if event and hasattr(event, 'id'):
                 await WebhookLock.mark_webhook_failed(event.id, error_message)
-            
-            return {'status': 'success', 'error': 'processed_with_errors', 'message': 'Webhook logged as failed internally'}
+
+            # Return a non-2xx response so Stripe retries failed webhook deliveries.
+            raise HTTPException(status_code=500, detail="Webhook processing failed")
         
 webhook_service = WebhookService() 

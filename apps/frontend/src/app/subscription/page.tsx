@@ -11,7 +11,7 @@ import { createClient } from '@/lib/supabase/client';
 import { clearUserLocalStorage } from '@/lib/utils/clear-local-storage';
 import { useMaintenanceNoticeQuery } from '@/hooks/edge-flags';
 import { useAdminRole } from '@/hooks/admin';
-import { useAccountState } from '@/hooks/billing';
+import { useMinimalAccountState } from '@/hooks/billing';
 
 // Lazy load heavy components
 const PricingSection = lazy(() => import('@/components/billing/pricing').then(mod => ({ default: mod.PricingSection })));
@@ -41,8 +41,10 @@ function SubscriptionSkeleton() {
 export default function SubscriptionRequiredPage() {
   const router = useRouter();
   const { data: maintenanceNotice, isLoading: maintenanceLoading } = useMaintenanceNoticeQuery();
-  const { data: adminRoleData, isLoading: isCheckingAdminRole } = useAdminRole();
-  const { data: accountState, isLoading: isLoadingSubscription, refetch: refetchSubscription } = useAccountState({ enabled: true });
+  const { data: adminRoleData, isLoading: isCheckingAdminRole } = useAdminRole({
+    enabled: maintenanceNotice?.enabled === true,
+  });
+  const { data: accountState, isLoading: isLoadingSubscription, refetch: refetchSubscription } = useMinimalAccountState({ enabled: true });
   const subscriptionData = accountState;
   const isAdmin = adminRoleData?.isAdmin ?? false;
 
@@ -89,13 +91,19 @@ export default function SubscriptionRequiredPage() {
   }
 
   // Show skeleton during initial load
-  if (isLoadingSubscription || maintenanceLoading || isCheckingAdminRole) {
+  if (
+    isLoadingSubscription ||
+    maintenanceLoading ||
+    (maintenanceNotice?.enabled === true && isCheckingAdminRole)
+  ) {
     return <SubscriptionSkeleton />;
   }
 
-  const isTrialExpired = (subscriptionData as any)?.trial_status === 'expired' ||
-    (subscriptionData as any)?.trial_status === 'cancelled' ||
-    (subscriptionData as any)?.trial_status === 'used';
+  const trialStatus = subscriptionData?.subscription?.trial_status;
+  const isTrialExpired =
+    trialStatus === 'expired' ||
+    trialStatus === 'cancelled' ||
+    trialStatus === 'used';
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/20 py-12 px-4">

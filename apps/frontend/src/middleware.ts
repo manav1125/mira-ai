@@ -312,11 +312,18 @@ export async function middleware(request: NextRequest) {
 
       const { data: trialHistory } = await supabase
         .from('trial_history')
-        .select('id')
+        .select('id, status')
         .eq('account_id', accountId)
         .single();
 
-      const hasUsedTrial = !!trialHistory;
+      const retryableTrialStatuses = new Set([
+        'checkout_pending',
+        'checkout_created',
+        'checkout_failed',
+      ]);
+      const hasUsedTrial =
+        !!trialHistory &&
+        !retryableTrialStatuses.has((trialHistory as { status?: string | null }).status || '');
 
       if (!creditAccount) {
         if (hasUsedTrial) {

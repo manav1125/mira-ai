@@ -22,9 +22,12 @@ class TierHandler:
                 pass
             
             cache_key = f"subscription_tier:{account_id}"
-            cached = await Cache.get(cache_key)
-            if cached:
-                return cached
+            try:
+                cached = await Cache.get(cache_key)
+                if cached:
+                    return cached
+            except Exception as e:
+                logger.debug(f"[TIER] Cache read skipped for {account_id[:8]}...: {e}")
         
         credit_result = await billing_repo.get_credit_account_subscription_info(account_id)
         
@@ -65,7 +68,10 @@ class TierHandler:
             pass
         
         cache_key = f"subscription_tier:{account_id}"
-        await Cache.set(cache_key, tier_info, ttl=60)
+        try:
+            await Cache.set(cache_key, tier_info, ttl=60)
+        except Exception as e:
+            logger.debug(f"[TIER] Cache write skipped for {account_id[:8]}...: {e}")
         return tier_info
 
     @staticmethod

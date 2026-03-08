@@ -18,6 +18,7 @@ import { siteConfig } from '@/lib/site-config';
 import {
   billingApi,
   AccountState,
+  MinimalAccountState,
   CreateCheckoutSessionRequest,
   CreatePortalSessionRequest,
   CancelSubscriptionRequest,
@@ -33,6 +34,7 @@ import {
 export const accountStateKeys = {
   all: ['account-state'] as const,
   state: () => [...accountStateKeys.all, 'state'] as const,
+  minimal: () => [...accountStateKeys.all, 'minimal'] as const,
   usageHistory: (days?: number) => [...accountStateKeys.all, 'usage-history', { days }] as const,
   transactions: (limit?: number, offset?: number) => [...accountStateKeys.all, 'transactions', { limit, offset }] as const,
   trial: () => [...accountStateKeys.all, 'trial'] as const,
@@ -51,6 +53,7 @@ const REFETCH_DEBOUNCE_MS = 200;
 export function invalidateAccountState(queryClient: ReturnType<typeof useQueryClient>, refetch = false, skipCache = false) {
   // Invalidate the query cache (marks data as stale)
   queryClient.invalidateQueries({ queryKey: accountStateKeys.state() });
+  queryClient.invalidateQueries({ queryKey: accountStateKeys.minimal() });
   
   if (!refetch) return;
   
@@ -78,19 +81,24 @@ export function invalidateAccountState(queryClient: ReturnType<typeof useQueryCl
     // Create a single promise that all callers will share
     activeRefetchPromise = (async () => {
       try {
-        // Use refetchQueries which properly deduplicates across components
-        // The queryFn in the useAccountState hook will handle skipCache
         if (shouldSkipCache) {
-          // For skipCache, we need to bypass the cached queryFn
-          // Use setQueryData with fresh data
-          const freshData = await billingApi.getAccountState(true);
+          const [freshData, freshMinimalData] = await Promise.all([
+            billingApi.getAccountState(true),
+            billingApi.getMinimalAccountState(true),
+          ]);
           queryClient.setQueryData(accountStateKeys.state(), freshData);
+          queryClient.setQueryData(accountStateKeys.minimal(), freshMinimalData);
         } else {
-          // Normal refetch - React Query handles deduplication
-          await queryClient.refetchQueries({ 
-            queryKey: accountStateKeys.state(),
-            type: 'active',
-          });
+          await Promise.all([
+            queryClient.refetchQueries({
+              queryKey: accountStateKeys.state(),
+              type: 'active',
+            }),
+            queryClient.refetchQueries({
+              queryKey: accountStateKeys.minimal(),
+              type: 'active',
+            }),
+          ]);
         }
       } finally {
         activeRefetchPromise = null;
@@ -135,6 +143,32 @@ export function useAccountState(options?: UseAccountStateOptions) {
     enabled,
     staleTime: options?.staleTime ?? 1000 * 60 * 2,
     gcTime: 1000 * 60 * 15,
+    refetchOnWindowFocus: options?.refetchOnWindowFocus ?? false,
+    refetchOnMount: options?.refetchOnMount ?? 'always',
+    refetchOnReconnect: true,
+    structuralSharing: true,
+    retry: enabled ? (failureCount, error) => {
+      const message = (error as Error).message || '';
+      if (message.includes('401') || message.includes('403')) {
+        return false;
+      }
+      return failureCount < 2;
+    } : false,
+  });
+}
+
+/**
+ * Minimal account state hook for fast auth/trial/subscription gating.
+ */
+export function useMinimalAccountState(options?: UseAccountStateOptions) {
+  const enabled = options?.enabled ?? true;
+
+  return useQuery<MinimalAccountState>({
+    queryKey: accountStateKeys.minimal(),
+    queryFn: () => billingApi.getMinimalAccountState(options?.skipCache ?? false),
+    enabled,
+    staleTime: options?.staleTime ?? 1000 * 60,
+    gcTime: 1000 * 60 * 10,
     refetchOnWindowFocus: options?.refetchOnWindowFocus ?? false,
     refetchOnMount: options?.refetchOnMount ?? 'always',
     refetchOnReconnect: true,
@@ -449,4 +483,3 @@ export const accountStateSelectors = {
   /** Get daily credits info */
   dailyCreditsInfo: (state: AccountState | undefined) => state?.credits?.daily_refresh,
 };
-

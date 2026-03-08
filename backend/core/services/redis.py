@@ -7,6 +7,7 @@ import os
 import asyncio
 import time
 from typing import Optional, Dict, List, Any
+from urllib.parse import urlparse, unquote
 from dotenv import load_dotenv
 from core.utils.logger import logger
 
@@ -22,6 +23,7 @@ HEALTH_CHECK_INTERVAL = int(os.getenv("REDIS_HEALTH_CHECK_INTERVAL", "15"))  # M
 # Split pool configuration - prevents XREAD BLOCK from starving GET/SET
 GENERAL_POOL_SIZE = int(os.getenv("REDIS_GENERAL_POOL_SIZE", "200"))
 STREAM_POOL_SIZE = int(os.getenv("REDIS_STREAM_POOL_SIZE", "50"))
+REDIS_RETRY_COOLDOWN_SECONDS = float(os.getenv("REDIS_RETRY_COOLDOWN_SECONDS", "60"))
 
 
 # =============================================================================
@@ -190,31 +192,82 @@ class RedisClient:
         self._timeout_count = 0
         self._error_count = 0
         self._init_time: Optional[float] = None
+        self._missing_config_warned = False
+        self._unavailable_reason: Optional[str] = None
+        self._retry_after_ts = 0.0
     
     def _get_config(self) -> Dict[str, Any]:
         load_dotenv()
-        
+
+        redis_url = (
+            os.getenv("REDIS_URL")
+            or os.getenv("REDIS_PRIVATE_URL")
+            or os.getenv("REDIS_INTERNAL_URL")
+            or os.getenv("REDIS_URI")
+            or os.getenv("REDIS_CONNECTION_STRING")
+            or os.getenv("KV_URL")
+            or os.getenv("REDIS_TLS_URL")
+            or ""
+        ).strip()
+
+        # Prefer URL-based config when available (Render/managed Redis common path).
+        if redis_url:
+            try:
+                parsed = urlparse(redis_url)
+                parsed_host = parsed.hostname or "localhost"
+                parsed_ssl = parsed.scheme.lower() == "rediss"
+                parsed_port = parsed.port or (6380 if parsed_ssl else 6379)
+                parsed_username = unquote(parsed.username) if parsed.username else None
+                parsed_password = unquote(parsed.password) if parsed.password else ""
+
+                scheme = "rediss" if parsed_ssl else "redis"
+                if parsed_username and parsed_password:
+                    normalized_url = (
+                        f"{scheme}://{parsed_username}:{parsed_password}@{parsed_host}:{parsed_port}"
+                    )
+                elif parsed_password:
+                    normalized_url = f"{scheme}://:{parsed_password}@{parsed_host}:{parsed_port}"
+                else:
+                    normalized_url = f"{scheme}://{parsed_host}:{parsed_port}"
+
+                return {
+                    "host": parsed_host,
+                    "port": parsed_port,
+                    "password": parsed_password,
+                    "username": parsed_username,
+                    "ssl": parsed_ssl,
+                    "url": normalized_url,
+                    "configured": True,
+                }
+            except Exception as e:
+                logger.warning(f"Invalid REDIS_URL configuration; falling back to host/port: {e}")
+
         redis_host = os.getenv("REDIS_HOST", "localhost")
         redis_port = int(os.getenv("REDIS_PORT", 6379))
         redis_password = os.getenv("REDIS_PASSWORD", "")
         redis_username = os.getenv("REDIS_USERNAME", None)
         redis_ssl = os.getenv("REDIS_SSL", "false").lower() == "true"
-        
+        host_port_explicitly_set = any(
+            key in os.environ
+            for key in ("REDIS_HOST", "REDIS_PORT", "REDIS_PASSWORD", "REDIS_USERNAME", "REDIS_SSL")
+        )
+
         scheme = "rediss" if redis_ssl else "redis"
         if redis_username and redis_password:
-            redis_url = f"{scheme}://{redis_username}:{redis_password}@{redis_host}:{redis_port}"
+            normalized_url = f"{scheme}://{redis_username}:{redis_password}@{redis_host}:{redis_port}"
         elif redis_password:
-            redis_url = f"{scheme}://:{redis_password}@{redis_host}:{redis_port}"
+            normalized_url = f"{scheme}://:{redis_password}@{redis_host}:{redis_port}"
         else:
-            redis_url = f"{scheme}://{redis_host}:{redis_port}"
-        
+            normalized_url = f"{scheme}://{redis_host}:{redis_port}"
+
         return {
             "host": redis_host,
             "port": redis_port,
             "password": redis_password,
             "username": redis_username,
             "ssl": redis_ssl,
-            "url": redis_url,
+            "url": normalized_url,
+            "configured": host_port_explicitly_set,
         }
     
     def get_pool_info(self) -> Dict[str, Any]:
@@ -243,6 +296,29 @@ class RedisClient:
             }
         return {"status": "pool_not_initialized"}
 
+    def _clear_unavailable(self) -> None:
+        self._unavailable_reason = None
+        self._retry_after_ts = 0.0
+
+    def _mark_unavailable(self, reason: str) -> None:
+        now = time.time()
+        should_log = reason != self._unavailable_reason or now >= self._retry_after_ts
+
+        self._initialized = False
+        self._client = None
+        self._pool = None
+        self._stream_client = None
+        self._stream_pool = None
+        self._hub = None
+        self._unavailable_reason = reason
+        self._retry_after_ts = now + REDIS_RETRY_COOLDOWN_SECONDS
+
+        if should_log:
+            logger.warning(
+                f"Redis unavailable; suppressing reconnect attempts for "
+                f"{REDIS_RETRY_COOLDOWN_SECONDS:.0f}s: {reason}"
+            )
+
     async def get_client(self) -> Redis:
         if self._client is not None and self._initialized:
             return self._client
@@ -255,8 +331,28 @@ class RedisClient:
             # Double-check after acquiring lock to prevent race condition
             if self._client is not None and self._initialized:
                 return self._client
+
+            if self._retry_after_ts and time.time() < self._retry_after_ts:
+                retry_in_seconds = max(1, int(self._retry_after_ts - time.time()))
+                reason = self._unavailable_reason or "Redis is temporarily unavailable"
+                raise ConnectionError(f"{reason} (retry in {retry_in_seconds}s)")
+
+            self._clear_unavailable()
             
             config = self._get_config()
+            env_mode = (os.getenv("ENV_MODE") or os.getenv("NEXT_PUBLIC_ENV_MODE") or "").strip().lower()
+            is_local_mode = env_mode in ("local", "development", "dev")
+
+            if not config.get("configured", False) and not is_local_mode:
+                message = (
+                    "Redis is not configured. Set REDIS_URL/REDIS_INTERNAL_URL (recommended) "
+                    "or REDIS_HOST/REDIS_PORT."
+                )
+                self._mark_unavailable(message)
+                if not self._missing_config_warned:
+                    logger.warning(message)
+                    self._missing_config_warned = True
+                raise ConnectionError(message)
             
             logger.info(
                 f"Initializing Redis to {config['host']}:{config['port']} "
@@ -306,12 +402,15 @@ class RedisClient:
                 self._hub = StreamHub(self._stream_client)
                 self._initialized = True
                 self._init_time = time.time()
+                self._clear_unavailable()
                 logger.info(f"Successfully connected to Redis (general_pool={GENERAL_POOL_SIZE}, stream_pool={STREAM_POOL_SIZE})")
             except asyncio.TimeoutError:
                 logger.error("Redis ping timed out after 5 seconds")
+                self._mark_unavailable("Redis connection timeout - is Redis running?")
                 raise ConnectionError("Redis connection timeout - is Redis running?")
             except Exception as e:
                 logger.error(f"Redis ping failed: {e}")
+                self._mark_unavailable(f"Redis connection failed: {e}")
                 raise ConnectionError(f"Redis connection failed: {e}")
             
             return self._client
@@ -369,6 +468,7 @@ class RedisClient:
                     self._hub = None
 
             self._initialized = False
+            self._clear_unavailable()
             logger.info("Redis connections and pools closed")
     
     async def verify_connection(self) -> bool:
@@ -418,6 +518,7 @@ class RedisClient:
             return default
         except (ConnectionError, RedisConnectionError, OSError) as e:
             self._error_count += 1
+            self._mark_unavailable(str(e))
             logger.warning(f"⚠️ [REDIS CONNECTION] {operation_name}: {e}")
             return default
         except Exception as e:

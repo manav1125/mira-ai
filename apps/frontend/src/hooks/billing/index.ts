@@ -12,6 +12,7 @@
 export {
   // Main hook
   useAccountState,
+  useMinimalAccountState,
   useAccountStateWithStreaming,
   
   // Query keys for manual invalidation if needed

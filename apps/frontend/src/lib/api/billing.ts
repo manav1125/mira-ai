@@ -126,6 +126,40 @@ export interface AccountState {
   };
 }
 
+export interface MinimalAccountState {
+  credits: {
+    total: number;
+    daily: number;
+    monthly: number;
+    extra: number;
+    can_run: boolean;
+    daily_refresh: {
+      enabled: boolean;
+      daily_amount: number;
+      refresh_interval_hours: number;
+      last_refresh?: string;
+      next_refresh_at?: string;
+      seconds_until_refresh?: number;
+    } | null;
+  };
+  subscription: {
+    tier_key: string;
+    tier_display_name: string;
+    status: string;
+    is_trial: boolean;
+    trial_status: string | null;
+  };
+  tier: {
+    name: string;
+    display_name: string;
+  };
+  _cache?: {
+    cached: boolean;
+    ttl_seconds?: number;
+    local_mode?: boolean;
+  };
+}
+
 // =============================================================================
 // MUTATION REQUEST/RESPONSE TYPES
 // =============================================================================
@@ -438,6 +472,44 @@ export const billingApi = {
     return response.data!;
   },
 
+  /**
+   * Get minimal account state for fast gating on auth/trial/subscription pages.
+   */
+  async getMinimalAccountState(skipCache = false): Promise<MinimalAccountState> {
+    const params = skipCache ? '?skip_cache=true' : '';
+    const response = await backendApi.get<MinimalAccountState>(`/billing/account-state/minimal${params}`, {
+      showErrors: false,
+      timeout: 10000,
+    });
+    if (response.error && response.error.status !== 401) {
+      throw response.error;
+    }
+    if (response.error) {
+      return {
+        credits: {
+          total: 0,
+          daily: 0,
+          monthly: 0,
+          extra: 0,
+          can_run: false,
+          daily_refresh: null,
+        },
+        subscription: {
+          tier_key: 'none',
+          tier_display_name: 'No Plan',
+          status: 'no_subscription',
+          is_trial: false,
+          trial_status: null,
+        },
+        tier: {
+          name: 'none',
+          display_name: 'No Plan',
+        },
+      };
+    }
+    return response.data!;
+  },
+
   async deductTokenUsage(usage: TokenUsage) {
     const response = await backendApi.post<DeductResult>('/billing/deduct', usage);
     if (response.error) throw response.error;
@@ -602,6 +674,7 @@ export const billingApi = {
 // =============================================================================
 
 export const getAccountState = (skipCache?: boolean) => billingApi.getAccountState(skipCache);
+export const getMinimalAccountState = (skipCache?: boolean) => billingApi.getMinimalAccountState(skipCache);
 export const deductTokenUsage = (usage: TokenUsage) => billingApi.deductTokenUsage(usage);
 export const createCheckoutSession = (request: CreateCheckoutSessionRequest) => 
   billingApi.createCheckoutSession(request);

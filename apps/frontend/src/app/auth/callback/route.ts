@@ -194,7 +194,8 @@ export async function GET(request: NextRequest) {
 }
 
 function resolveBaseUrl(request: NextRequest) {
-  const configuredPublicUrl = process.env.NEXT_PUBLIC_URL?.trim()
+  const configuredPublicUrl =
+    process.env.NEXT_PUBLIC_APP_URL?.trim() || process.env.NEXT_PUBLIC_URL?.trim()
   const requestOrigin = request.nextUrl.origin
 
   if (configuredPublicUrl && !isInternalOrigin(configuredPublicUrl)) {
@@ -214,7 +215,15 @@ function resolveBaseUrl(request: NextRequest) {
     return requestOrigin
   }
 
-  return configuredPublicUrl || 'http://localhost:3000'
+  const host = request.headers.get('host')?.split(',')[0]?.trim()
+  if (host) {
+    const hostOrigin = `${forwardedProto || 'https'}://${host}`
+    if (!isInternalOrigin(hostOrigin)) {
+      return hostOrigin
+    }
+  }
+
+  return 'http://localhost:3000'
 }
 
 function isInternalOrigin(origin: string) {

@@ -37,6 +37,25 @@ def _get_default(key: str):
     return _DEFAULTS[env_mode][key]
 
 
+def _parse_bool(value: Optional[str]) -> Optional[bool]:
+    if value is None:
+        return None
+
+    return value.lower() in ("true", "1", "yes")
+
+
+def _is_pool_enabled() -> bool:
+    explicit_value = _parse_bool(os.getenv("SANDBOX_POOL_ENABLED"))
+    if explicit_value is not None:
+        return explicit_value
+
+    env_mode = config.ENV_MODE or EnvMode.LOCAL
+    if env_mode == EnvMode.LOCAL:
+        return False
+
+    return bool(config.DAYTONA_API_KEY)
+
+
 @dataclass
 class SandboxPoolConfig:
     min_size: int = 5
@@ -56,7 +75,7 @@ class SandboxPoolConfig:
             replenish_threshold=float(os.getenv("SANDBOX_POOL_REPLENISH_THRESHOLD", str(_get_default("replenish_threshold")))),
             check_interval=int(os.getenv("SANDBOX_POOL_CHECK_INTERVAL", str(_get_default("check_interval")))),
             max_age=int(os.getenv("SANDBOX_POOL_MAX_AGE", "3600")),
-            enabled=os.getenv("SANDBOX_POOL_ENABLED", "false").lower() in ("true", "1", "yes"),
+            enabled=_is_pool_enabled(),
             parallel_create_limit=int(os.getenv("SANDBOX_POOL_PARALLEL_CREATE", str(_get_default("parallel_create_limit")))),
             batch_delay=int(os.getenv("SANDBOX_POOL_BATCH_DELAY", str(_get_default("batch_delay")))),
         )

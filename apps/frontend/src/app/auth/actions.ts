@@ -1,14 +1,52 @@
 'use server';
 
-import { createTrialCheckout } from '@/lib/api/billing';
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 
+const INTERNAL_HOST_PATTERNS = [
+  /^localhost$/i,
+  /^127\.0\.0\.1$/i,
+  /^0\.0\.0\.0$/i,
+  /^10\./i,
+  /^192\.168\./i,
+  /^172\.(1[6-9]|2\d|3[0-1])\./i,
+];
+
+function isInternalOrigin(origin?: string | null): boolean {
+  if (!origin) return true;
+
+  try {
+    const normalized = origin.includes('://') ? origin : `https://${origin}`;
+    const hostname = new URL(normalized).hostname.toLowerCase();
+    return INTERNAL_HOST_PATTERNS.some((pattern) => pattern.test(hostname));
+  } catch {
+    return true;
+  }
+}
+
+function resolvePublicOrigin(originFromForm?: string | null): string {
+  const candidates = [
+    originFromForm,
+    process.env.NEXT_PUBLIC_APP_URL,
+    process.env.NEXT_PUBLIC_URL,
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const trimmed = candidate.trim().replace(/\/$/, '');
+    if (trimmed && !isInternalOrigin(trimmed)) {
+      return trimmed;
+    }
+  }
+
+  return 'http://localhost:3000';
+}
 
 export async function signIn(prevState: any, formData: FormData) {
   const email = formData.get('email') as string;
   const returnUrl = formData.get('returnUrl') as string | undefined;
   const origin = formData.get('origin') as string;
+  const publicOrigin = resolvePublicOrigin(origin);
   const acceptedTerms = formData.get('acceptedTerms') === 'true';
   const isDesktopApp = formData.get('isDesktopApp') === 'true';
 
@@ -32,7 +70,7 @@ export async function signIn(prevState: any, formData: FormData) {
     }
     emailRedirectTo = `kortix://auth/callback${params.toString() ? `?${params.toString()}` : ''}`;
   } else {
-    emailRedirectTo = `${origin}/auth/callback?returnUrl=${encodeURIComponent(returnUrl || '/dashboard')}&email=${encodeURIComponent(normalizedEmail)}${acceptedTerms ? '&terms_accepted=true' : ''}`;
+    emailRedirectTo = `${publicOrigin}/auth/callback?returnUrl=${encodeURIComponent(returnUrl || '/dashboard')}&email=${encodeURIComponent(normalizedEmail)}${acceptedTerms ? '&terms_accepted=true' : ''}`;
   }
 
   const { error } = await supabase.auth.signInWithOtp({
@@ -57,6 +95,7 @@ export async function signIn(prevState: any, formData: FormData) {
 
 export async function signUp(prevState: any, formData: FormData) {
   const origin = formData.get('origin') as string;
+  const publicOrigin = resolvePublicOrigin(origin);
   const email = formData.get('email') as string;
   const returnUrl = formData.get('returnUrl') as string | undefined;
   const acceptedTerms = formData.get('acceptedTerms') === 'true';
@@ -87,7 +126,7 @@ export async function signUp(prevState: any, formData: FormData) {
     }
     emailRedirectTo = `kortix://auth/callback${params.toString() ? `?${params.toString()}` : ''}`;
   } else {
-    emailRedirectTo = `${origin}/auth/callback?returnUrl=${encodeURIComponent(returnUrl || '/dashboard')}&email=${encodeURIComponent(normalizedEmail)}${acceptedTerms ? '&terms_accepted=true' : ''}`;
+    emailRedirectTo = `${publicOrigin}/auth/callback?returnUrl=${encodeURIComponent(returnUrl || '/dashboard')}&email=${encodeURIComponent(normalizedEmail)}${acceptedTerms ? '&terms_accepted=true' : ''}`;
   }
 
   const { error } = await supabase.auth.signInWithOtp({
@@ -116,6 +155,7 @@ export async function signUp(prevState: any, formData: FormData) {
 export async function forgotPassword(prevState: any, formData: FormData) {
   const email = formData.get('email') as string;
   const origin = formData.get('origin') as string;
+  const publicOrigin = resolvePublicOrigin(origin);
 
   if (!email || !email.includes('@')) {
     return { message: 'Please enter a valid email address' };
@@ -124,7 +164,7 @@ export async function forgotPassword(prevState: any, formData: FormData) {
   const supabase = await createClient();
 
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${origin}/auth/reset-password`,
+    redirectTo: `${publicOrigin}/auth/reset-password`,
   });
 
   if (error) {
@@ -169,6 +209,7 @@ export async function resendMagicLink(prevState: any, formData: FormData) {
   const email = formData.get('email') as string;
   const returnUrl = formData.get('returnUrl') as string | undefined;
   const origin = formData.get('origin') as string;
+  const publicOrigin = resolvePublicOrigin(origin);
   const acceptedTerms = formData.get('acceptedTerms') === 'true';
   const isDesktopApp = formData.get('isDesktopApp') === 'true';
 
@@ -192,7 +233,7 @@ export async function resendMagicLink(prevState: any, formData: FormData) {
     }
     emailRedirectTo = `kortix://auth/callback${params.toString() ? `?${params.toString()}` : ''}`;
   } else {
-    emailRedirectTo = `${origin}/auth/callback?returnUrl=${encodeURIComponent(returnUrl || '/dashboard')}&email=${encodeURIComponent(normalizedEmail)}${acceptedTerms ? '&terms_accepted=true' : ''}`;
+    emailRedirectTo = `${publicOrigin}/auth/callback?returnUrl=${encodeURIComponent(returnUrl || '/dashboard')}&email=${encodeURIComponent(normalizedEmail)}${acceptedTerms ? '&terms_accepted=true' : ''}`;
   }
 
   const { error } = await supabase.auth.signInWithOtp({
@@ -272,7 +313,7 @@ export async function signUpWithPassword(prevState: any, formData: FormData) {
 
   const supabase = await createClient();
 
-  const baseUrl = origin || process.env.NEXT_PUBLIC_URL || 'http://localhost:3000';
+  const baseUrl = resolvePublicOrigin(origin);
   const emailRedirectTo = `${baseUrl}/auth/callback?returnUrl=${encodeURIComponent(returnUrl || '/dashboard')}`;
 
   const { error } = await supabase.auth.signUp({
