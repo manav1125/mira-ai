@@ -25,6 +25,16 @@ stripe.api_key = config.STRIPE_SECRET_KEY
 router = APIRouter(tags=["billing-subscriptions"])
 
 
+def _get_commitment_price_id(tier_name: str) -> str | None:
+    if tier_name == 'tier_2_20':
+        return config.STRIPE_TIER_2_17_YEARLY_COMMITMENT_ID
+    if tier_name == 'tier_6_50':
+        return config.STRIPE_TIER_6_42_YEARLY_COMMITMENT_ID
+    if tier_name == 'tier_25_200':
+        return config.STRIPE_TIER_25_170_YEARLY_COMMITMENT_ID
+    return None
+
+
 @router.post("/create-checkout-session")
 async def create_checkout_session(
     request: CreateCheckoutSessionRequest,
@@ -49,10 +59,9 @@ async def create_checkout_session(
                 raise HTTPException(status_code=400, detail=result.get('message', 'Failed to subscribe to free tier'))
         
         if request.commitment_type == 'yearly_commitment':
-            price_ids = [pid for pid in tier.price_ids if 'yearly_commitment' in pid.lower()]
-            if not price_ids:
+            price_id = _get_commitment_price_id(tier.name)
+            if not price_id:
                 raise HTTPException(status_code=400, detail="Yearly commitment not available for this tier")
-            price_id = price_ids[0]
         elif request.commitment_type == 'yearly':
             logger.debug(f"[YEARLY-BILLING] Selecting yearly price for tier: {tier.name}, available price_ids: {tier.price_ids}")
             price_id = None
