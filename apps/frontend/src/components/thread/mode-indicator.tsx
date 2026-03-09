@@ -14,8 +14,8 @@ import { isProductionMode } from '@/lib/config';
 import { ModelProviderIcon } from '@/lib/model-provider-icons';
 import { Separator } from '@/components/ui/separator';
 
-// Logo component for mode display with theme support
-// Uses CSS to switch between light/dark variants without JS
+// Render the user-facing Mira mode labels directly so this dropdown
+// is not tied to older baked-in Kortix SVG wordmarks.
 const ModeLogo = memo(function ModeLogo({ 
   mode, 
   height = 12
@@ -23,27 +23,27 @@ const ModeLogo = memo(function ModeLogo({
   mode: 'basic' | 'advanced'; 
   height?: number;
 }) {
-  const darkSrc = mode === 'advanced' ? '/Advanced-Light.svg' : '/Basic-Light.svg';
-  const lightSrc = mode === 'advanced' ? '/Advanced-Dark.svg' : '/Basic-Dark.svg';
+  const primaryFontSize = Math.max(height + 5, 14);
+  const secondaryFontSize = Math.max(height + 3, 12);
+  const secondaryLabel = mode === 'advanced' ? 'Advanced' : 'Basic';
 
   return (
-    <span className="flex-shrink-0 relative" style={{ height: `${height}px`, width: 'auto' }}>
-      {/* Light mode image */}
-      <img
-        src={lightSrc}
-        alt={mode === 'advanced' ? 'Mira Advanced' : 'Mira Basic'}
-        className="block dark:hidden"
-        style={{ height: `${height}px`, width: 'auto' }}
-        suppressHydrationWarning
-      />
-      {/* Dark mode image */}
-      <img
-        src={darkSrc}
-        alt={mode === 'advanced' ? 'Mira Advanced' : 'Mira Basic'}
-        className="hidden dark:block"
-        style={{ height: `${height}px`, width: 'auto' }}
-        suppressHydrationWarning
-      />
+    <span className="inline-flex items-baseline gap-1 leading-none whitespace-nowrap select-none">
+      <span
+        className="font-semibold tracking-tight text-foreground"
+        style={{ fontSize: `${primaryFontSize}px` }}
+      >
+        Mira
+      </span>
+      <span
+        className={cn(
+          'font-semibold tracking-tight',
+          mode === 'advanced' ? 'text-orange-500' : 'text-muted-foreground'
+        )}
+        style={{ fontSize: `${secondaryFontSize}px` }}
+      >
+        {secondaryLabel}
+      </span>
     </span>
   );
 });
@@ -231,4 +231,3 @@ export const ModeIndicator = memo(function ModeIndicator() {
 });
 
 export default ModeIndicator;
-
