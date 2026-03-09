@@ -1,5 +1,6 @@
 import asyncio
 import time
+import uuid
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Dict, Any, List, Optional, Tuple
@@ -86,11 +87,13 @@ class BatchWriter:
             return [], []
 
         from core.threads import repo as threads_repo
+        from core.memory.background_jobs import queue_memory_extraction
 
         succeeded = []
         failed = []
         semaphore = self._get_semaphore()
         llm_response_end_entries = []
+        memory_candidates_by_thread: Dict[str, List[str]] = {}
 
         async def bounded_persist(entry: WALEntry) -> Tuple[str, bool, Optional[str]]:
             async with semaphore:
@@ -125,6 +128,13 @@ class BatchWriter:
                         
                         if entry.data.get("is_llm_message", True):
                             batch_messages_to_cache.append(entry.data)
+                        if (
+                            entry.data.get("is_llm_message", True)
+                            and entry.data.get("type") in {"user", "assistant"}
+                        ):
+                            memory_candidates_by_thread.setdefault(
+                                entry.data["thread_id"], []
+                            ).append(entry.data.get("message_id"))
                     else:
                         failed.append((entry_id, error or "Unknown error"))
                 else:
@@ -150,12 +160,17 @@ class BatchWriter:
         if llm_response_end_entries:
             await self._process_billing(llm_response_end_entries, account_id)
 
+        for thread_id, message_ids in memory_candidates_by_thread.items():
+            queue_memory_extraction(thread_id, account_id, message_ids)
+
         return succeeded, failed
 
     async def _persist_message(self, entry: WALEntry, threads_repo) -> bool:
         data = entry.data
 
         async def _insert():
+            message_id = data.get("message_id") or str(uuid.uuid4())
+            data["message_id"] = message_id
             await threads_repo.insert_message(
                 thread_id=data["thread_id"],
                 message_type=data["type"],
@@ -164,7 +179,7 @@ class BatchWriter:
                 metadata=data.get("metadata"),
                 agent_id=data.get("agent_id"),
                 agent_version_id=data.get("agent_version_id"),
-                message_id=data.get("message_id"),
+                message_id=message_id,
                 created_at=entry.created_at,
             )
             return True

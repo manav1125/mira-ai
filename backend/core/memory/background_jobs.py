@@ -34,15 +34,32 @@ async def run_memory_extraction(
         from core.memory.extraction_service import MemoryExtractionService
         from core.billing import subscription_service
         from core.billing.shared.config import is_memory_enabled
+        from core.threads import repo as threads_repo
         
         client = await _db.client
+
+        user_memory_enabled = await threads_repo.get_user_memory_enabled(account_id)
+        if not user_memory_enabled:
+            logger.debug(f"Memory extraction skipped: disabled for account {account_id}")
+            return
+
+        thread_memory_enabled = await threads_repo.get_thread_memory_enabled(thread_id)
+        if not thread_memory_enabled:
+            logger.debug(f"Memory extraction skipped: disabled for thread {thread_id}")
+            return
         
         tier_info = await subscription_service.get_user_subscription_tier(account_id)
         if not is_memory_enabled(tier_info['name']):
             logger.debug(f"Memory disabled for tier {tier_info['name']}")
             return
         
-        messages_result = await client.table('messages').select('*').in_('message_id', message_ids).execute()
+        messages_result = (
+            await client.table('messages')
+            .select('*')
+            .in_('message_id', message_ids)
+            .order('created_at')
+            .execute()
+        )
         if not messages_result.data:
             return
         
@@ -100,9 +117,45 @@ async def run_memory_embedding(
         tier_info = await subscription_service.get_user_subscription_tier(account_id)
         memory_config = get_memory_config(tier_info['name'])
         max_memories = memory_config.get('max_memories', 0)
+        seen_pairs = set()
+        unique_memories = []
+        for mem in extracted_memories:
+            content = (mem.get('content') or '').strip()
+            if not content:
+                continue
+            key = (content.lower(), mem.get('memory_type'))
+            if key in seen_pairs:
+                continue
+            seen_pairs.add(key)
+            unique_memories.append({
+                **mem,
+                'content': content,
+            })
+        extracted_memories = unique_memories
+        if not extracted_memories:
+            logger.debug("Memory embedding skipped: no unique memories to store")
+            return
         
         current_count_result = await client.table('user_memories').select('memory_id', count='exact').eq('account_id', account_id).execute()
         current_count = current_count_result.count or 0
+
+        existing_result = await client.table('user_memories').select('content, memory_type').eq('account_id', account_id).in_(
+            'content',
+            [m['content'] for m in extracted_memories]
+        ).execute()
+        existing_pairs = {
+            ((row.get('content') or '').strip().lower(), row.get('memory_type'))
+            for row in (existing_result.data or [])
+            if row.get('content')
+        }
+
+        extracted_memories = [
+            mem for mem in extracted_memories
+            if (mem['content'].lower(), mem.get('memory_type')) not in existing_pairs
+        ]
+        if not extracted_memories:
+            logger.debug("Memory embedding skipped: all memories already exist")
+            return
         
         texts = [m['content'] for m in extracted_memories]
         embeddings = await embedding_service.embed_texts(texts)
@@ -159,6 +212,24 @@ async def embed_memories(account_id: str, thread_id: str, memories: List[Dict[st
     if not config.ENABLE_MEMORY:
         return
     start_memory_embedding(account_id, thread_id, memories)
+
+
+def queue_memory_extraction(thread_id: str, account_id: str, message_ids: List[str]) -> None:
+    """Queue memory extraction for a persisted batch of messages."""
+    from core.utils.config import config
+
+    if not config.ENABLE_MEMORY:
+        return
+
+    unique_message_ids = list(dict.fromkeys(message_id for message_id in message_ids if message_id))
+    if not unique_message_ids:
+        return
+
+    extract_memories_from_conversation.send(
+        thread_id=thread_id,
+        account_id=account_id,
+        message_ids=unique_message_ids,
+    )
 
 
 # Backwards-compatible wrappers with .send() interface

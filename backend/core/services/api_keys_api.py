@@ -31,27 +31,27 @@ async def get_api_key_service() -> APIKeyService:
 
 
 async def get_account_id_from_user_id(user_id: str) -> UUID:
-    """Get account ID from user ID using basejump accounts table"""
+    """Get the user's personal account ID, with a safe fallback to any accessible account."""
     try:
-        from core.utils.db_helpers import get_db
-        db = await get_db()
-        client = await db.client
+        from core.endpoints.accounts_repo import get_user_accounts
 
-        # Query the basejump.accounts table for the user's primary account
-        result = (
-            await client.schema("basejump")
-            .table("accounts")
-            .select("id")
-            .eq("primary_owner_user_id", user_id)
-            .eq("personal_account", True)  # Get the user's personal account
-            .limit(1)
-            .execute()
-        )
-
-        if not result.data:
+        accounts = await get_user_accounts(user_id)
+        if not accounts:
             raise HTTPException(status_code=404, detail="User account not found")
 
-        return UUID(result.data[0]["id"])
+        personal_account = next(
+            (account for account in accounts if account.get("personal_account")),
+            None,
+        )
+        selected_account = personal_account or accounts[0]
+
+        account_id = selected_account.get("account_id")
+        if not account_id:
+            raise HTTPException(status_code=404, detail="User account not found")
+
+        return UUID(str(account_id))
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting account ID: {e}")
         raise HTTPException(status_code=500, detail="Failed to get user account")

@@ -774,6 +774,7 @@ async def add_message_to_thread(
     user_id: str = Depends(verify_and_get_user_id_from_jwt),
 ):
     from core.threads import repo as threads_repo
+    from core.memory.background_jobs import queue_memory_extraction
     
     logger.debug(f"Adding message to thread: {thread_id}")
     
@@ -801,6 +802,7 @@ async def add_message_to_thread(
             content={"role": "user", "content": message},
             is_llm_message=True
         )
+        queue_memory_extraction(thread_id, user_id, [new_message.get("message_id")])
         
         return new_message
     except Exception as e:
@@ -814,6 +816,7 @@ async def create_message_endpoint(
     user_id: str = Depends(verify_and_get_user_id_from_jwt)
 ):
     from core.threads import repo as threads_repo
+    from core.memory.background_jobs import queue_memory_extraction
     
     logger.debug(f"Creating message in thread: {thread_id}")
     
@@ -839,6 +842,9 @@ async def create_message_endpoint(
         
         if not new_message:
             raise HTTPException(status_code=500, detail="Failed to create message")
+
+        if message_data.type in {"user", "assistant"} and message_data.is_llm_message:
+            queue_memory_extraction(thread_id, user_id, [new_message.get("message_id")])
         
         logger.debug(f"Created message: {new_message['message_id']}")
         return new_message

@@ -60,6 +60,30 @@ export function MemoryList({
 
   return (
     <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder={t('searchMemories')}
+            className="rounded-xl pl-9"
+          />
+        </div>
+        <Select value={filterType} onValueChange={setFilterType}>
+          <SelectTrigger className="w-full rounded-xl sm:w-[200px]">
+            <SelectValue placeholder={t('filterByType')} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t('allTypes')}</SelectItem>
+            <SelectItem value="fact">{t('memoryTypes.fact')}</SelectItem>
+            <SelectItem value="preference">{t('memoryTypes.preference')}</SelectItem>
+            <SelectItem value="context">{t('memoryTypes.context')}</SelectItem>
+            <SelectItem value="conversation_summary">{t('memoryTypes.conversation_summary')}</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
       {isLoading && memories.length === 0 ? (
         <div className="grid gap-3">
           {Array.from({ length: 3 }).map((_, i) => (

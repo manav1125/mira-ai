@@ -75,19 +75,23 @@ async def write_user_message_for_existing_thread(
     thread_id: str,
     message_content: str,
 ) -> None:
+    from core.memory.background_jobs import queue_memory_extraction
     from core.threads import repo as threads_repo
     
     if not message_content or not message_content.strip():
         return
     
     msg_start = time.time()
-    await threads_repo.create_message_full(
+    new_message = await threads_repo.create_message_full(
         message_id=str(uuid.uuid4()),
         thread_id=thread_id,
         message_type="user",
         content={"role": "user", "content": message_content},
         is_llm_message=True
     )
+    account_id = await threads_repo.get_thread_account_id(thread_id)
+    if account_id:
+        queue_memory_extraction(thread_id, account_id, [new_message.get("message_id")])
     logger.debug(f"⏱️ User message written: {(time.time() - msg_start)*1000:.1f}ms")
 
 
@@ -211,6 +215,7 @@ async def create_new_thread_records(
     metadata: Optional[Dict[str, Any]],
     memory_enabled: Optional[bool],
 ) -> None:
+    from core.memory.background_jobs import queue_memory_extraction
     from core.threads import repo as threads_repo
     from core.cache.runtime_cache import delete_pending_thread, increment_thread_count_cache
     from core.utils.project_helpers import generate_and_update_project_name
@@ -218,7 +223,7 @@ async def create_new_thread_records(
     
     placeholder_name = f"{prompt[:30]}..." if len(prompt) > 30 else prompt
     
-    await threads_repo.create_thread_with_message_and_run(
+    result = await threads_repo.create_thread_with_message_and_run(
         project_id=project_id,
         thread_id=thread_id,
         account_id=account_id,
@@ -231,6 +236,9 @@ async def create_new_thread_records(
         run_metadata=metadata,
         memory_enabled=memory_enabled
     )
+
+    if message_content and result.get("message_id"):
+        queue_memory_extraction(thread_id, account_id, [result["message_id"]])
     
     await delete_pending_thread(thread_id)
     

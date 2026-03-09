@@ -154,10 +154,12 @@ class TransactionalWriter:
     ) -> TransactionResult:
         from core.threads import repo as threads_repo
         from core.billing.credits.manager import credit_manager
+        from core.memory.background_jobs import queue_memory_extraction
 
         start_time = time.time()
         transaction_id = str(uuid.uuid4())
         reservation_id = None
+        memory_candidates_by_thread: Dict[str, List[str]] = {}
 
         try:
             if credit_amount > 0:
@@ -170,6 +172,8 @@ class TransactionalWriter:
             saved_count = 0
             for msg_data in messages:
                 try:
+                    message_id = msg_data.get("message_id") or str(uuid.uuid4())
+                    msg_data["message_id"] = message_id
                     await threads_repo.insert_message(
                         thread_id=msg_data["thread_id"],
                         message_type=msg_data["type"],
@@ -178,9 +182,16 @@ class TransactionalWriter:
                         metadata=msg_data.get("metadata"),
                         agent_id=msg_data.get("agent_id"),
                         agent_version_id=msg_data.get("agent_version_id"),
-                        message_id=msg_data.get("message_id"),
+                        message_id=message_id,
                     )
                     saved_count += 1
+                    if (
+                        msg_data.get("is_llm_message", True)
+                        and msg_data["type"] in {"user", "assistant"}
+                    ):
+                        memory_candidates_by_thread.setdefault(
+                            msg_data["thread_id"], []
+                        ).append(msg_data.get("message_id"))
                 except Exception as e:
                     logger.error(f"[TransactionalWriter] Message save failed: {e}")
                     if reservation_id:
@@ -189,6 +200,9 @@ class TransactionalWriter:
 
             if reservation_id:
                 await self._reservations.commit(reservation_id)
+
+            for current_thread_id, message_ids in memory_candidates_by_thread.items():
+                queue_memory_extraction(current_thread_id, account_id, message_ids)
 
             duration_ms = (time.time() - start_time) * 1000
 
@@ -225,10 +239,12 @@ class TransactionalWriter:
     ) -> TransactionResult:
         from core.threads import repo as threads_repo
         from core.billing.credits.manager import credit_manager
+        from core.memory.background_jobs import queue_memory_extraction
 
         start_time = time.time()
         transaction_id = str(uuid.uuid4())
         saved_message_ids = []
+        memory_candidates_by_thread: Dict[str, List[str]] = {}
 
         try:
             for msg_data in messages:
@@ -244,6 +260,13 @@ class TransactionalWriter:
                     message_id=msg_id,
                 )
                 saved_message_ids.append(msg_id)
+                if (
+                    msg_data.get("is_llm_message", True)
+                    and msg_data["type"] in {"user", "assistant"}
+                ):
+                    memory_candidates_by_thread.setdefault(
+                        msg_data["thread_id"], []
+                    ).append(msg_id)
 
             if credit_amount > 0:
                 await credit_manager.deduct_credits(
@@ -252,6 +275,9 @@ class TransactionalWriter:
                     description=f"Agent run {run_id}",
                     thread_id=thread_id,
                 )
+
+            for current_thread_id, message_ids in memory_candidates_by_thread.items():
+                queue_memory_extraction(current_thread_id, account_id, message_ids)
 
             duration_ms = (time.time() - start_time) * 1000
 

@@ -1350,7 +1350,7 @@ async def get_first_user_message_content(thread_id: str) -> Optional[Dict[str, A
 async def get_user_memory_enabled(account_id: str) -> bool:
     sql = """
     SELECT 
-        COALESCE((private_metadata->>'memory_enabled')::boolean, true) as memory_enabled
+        COALESCE(memory_enabled, true) as memory_enabled
     FROM basejump.accounts
     WHERE id = :account_id
     """
