@@ -48,14 +48,15 @@ export function InstructionsScreen({ agentId, onUpdate }: InstructionsScreenProp
     if (!hasChanges) return;
 
     const isSunaAgent = agent?.metadata?.is_suna_default || false;
+    const isCentrallyManaged = agent?.metadata?.centrally_managed || false;
     const restrictions = agent?.metadata?.restrictions || {};
-    const isEditable = restrictions.system_prompt_editable !== false && !isSunaAgent;
+    const isEditable = restrictions.system_prompt_editable !== false && !isCentrallyManaged;
 
     if (!isEditable) {
-      if (isSunaAgent) {
+      if (isCentrallyManaged) {
         Alert.alert(
           t('workers.instructions.cannotEditAlert'),
-          t('workers.instructions.sunaManaged')
+          isSunaAgent ? t('workers.instructions.sunaManaged') : t('workers.instructions.cannotEdit')
         );
       }
       return;
@@ -89,8 +90,9 @@ export function InstructionsScreen({ agentId, onUpdate }: InstructionsScreenProp
   }
 
   const isSunaAgent = agent?.metadata?.is_suna_default || false;
+  const isCentrallyManaged = agent?.metadata?.centrally_managed || false;
   const restrictions = agent?.metadata?.restrictions || {};
-  const isEditable = restrictions.system_prompt_editable !== false && !isSunaAgent;
+  const isEditable = restrictions.system_prompt_editable !== false && !isCentrallyManaged;
 
   return (
     <View className="flex-1" style={{ flex: 1, position: 'relative' }}>

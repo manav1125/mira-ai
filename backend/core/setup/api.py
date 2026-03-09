@@ -12,6 +12,7 @@ from core.utils.logger import logger
 from core.utils.config import config
 from core.billing.subscriptions import free_tier_service
 from core.utils.suna_default_agent_service import SunaDefaultAgentService
+from core.utils.official_worker_service import OfficialWorkerService
 from core.services.supabase import DBConnection
 from core.services.email import email_service
 
@@ -104,6 +105,13 @@ async def initialize_user_account(account_id: str, email: Optional[str] = None, 
         except Exception as e:
             logger.error(f"[SETUP] Error installing Suna agent for {account_id}: {e}")
             agent_id = None
+
+        logger.info(f"[SETUP] Installing official workers for {account_id}")
+        try:
+            official_worker_service = OfficialWorkerService(db)
+            await official_worker_service.install_for_user(account_id, replace_existing=False)
+        except Exception as e:
+            logger.error(f"[SETUP] Error installing official workers for {account_id}: {e}")
         
         if user_record:
             raw_user_metadata = user_record.get('raw_user_meta_data', {})

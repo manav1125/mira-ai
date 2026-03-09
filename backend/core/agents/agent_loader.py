@@ -397,6 +397,8 @@ class AgentLoader:
             version_count=row.get('version_count', 1),
             metadata=metadata,
             is_suna_default=is_suna_default,
+            centrally_managed=metadata.get('centrally_managed', False),
+            restrictions=metadata.get('restrictions', {}),
             config_loaded=False
         )
     
@@ -545,7 +547,8 @@ class AgentLoader:
             agent.version_created_at = version_dict.get('created_at')
             agent.version_updated_at = version_dict.get('updated_at')
             agent.version_created_by = version_dict.get('created_by')
-            agent.restrictions = {}
+            agent.centrally_managed = bool((agent.metadata or {}).get('centrally_managed', False))
+            agent.restrictions = (agent.metadata or {}).get('restrictions', {})
             
         except Exception as e:
             logger.warning(f"Failed to load version for agent {agent.agent_id}: {e}")
@@ -562,7 +565,8 @@ class AgentLoader:
         agent.agentpress_tools = _extract_agentpress_tools_for_run(_get_default_agentpress_tools())
         agent.triggers = []
         agent.version_name = 'v1'
-        agent.restrictions = {}
+        agent.centrally_managed = bool((agent.metadata or {}).get('centrally_managed', False))
+        agent.restrictions = (agent.metadata or {}).get('restrictions', {})
     
     async def _batch_load_configs(self, agents: list[AgentData]):
         """Batch load configurations for multiple agents."""
@@ -632,7 +636,8 @@ class AgentLoader:
         agent.triggers = config.get('triggers', [])
         agent.version_name = version_row.get('version_name', 'v1')
         agent.version_number = version_row.get('version_number')
-        agent.restrictions = {}
+        agent.centrally_managed = bool((agent.metadata or {}).get('centrally_managed', False))
+        agent.restrictions = (agent.metadata or {}).get('restrictions', {})
 
 
 # Singleton instance
@@ -644,4 +649,3 @@ async def get_agent_loader() -> AgentLoader:
     if _loader is None:
         _loader = AgentLoader()
     return _loader
-

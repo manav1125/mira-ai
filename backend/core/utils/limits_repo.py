@@ -54,7 +54,7 @@ async def count_user_agents(account_id: str) -> int:
     SELECT COUNT(*) as count 
     FROM agents 
     WHERE account_id = :account_id 
-      AND (metadata->>'is_suna_default')::boolean IS NOT TRUE
+      AND COALESCE((metadata->>'centrally_managed')::boolean, false) IS NOT TRUE
     """
     result = await execute_one(sql, {"account_id": account_id})
     return result["count"] if result else 0
@@ -83,7 +83,7 @@ async def get_all_limits_counts(account_id: str) -> Dict[str, Any]:
     SELECT 
         (SELECT COUNT(*) FROM agents 
          WHERE account_id = :account_id 
-           AND (metadata->>'is_suna_default')::boolean IS NOT TRUE) as agent_count,
+           AND COALESCE((metadata->>'centrally_managed')::boolean, false) IS NOT TRUE) as agent_count,
         (SELECT COUNT(*) FROM threads WHERE account_id = :account_id) as thread_count,
         (SELECT COUNT(*) FROM projects WHERE account_id = :account_id) as project_count,
         (SELECT COUNT(*) FROM agent_runs ar 

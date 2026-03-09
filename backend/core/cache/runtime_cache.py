@@ -252,18 +252,12 @@ async def prewarm_user_agents(user_id: str) -> dict:
         from core.agents import repo as agents_repo
         from core.agents.agent_loader import get_agent_loader
         from core.services.supabase import DBConnection
+        from core.utils.ensure_suna import ensure_suna_installed
+        from core.utils.ensure_official_workers import ensure_official_workers_installed
         
+        await ensure_suna_installed(user_id)
+        await ensure_official_workers_installed(user_id)
         agent_ids = await agents_repo.get_user_agent_ids(user_id)
-        
-        if not agent_ids:
-            try:
-                from core.utils.ensure_suna import ensure_suna_installed
-                await ensure_suna_installed(user_id)
-                agent_ids = await agents_repo.get_user_agent_ids(user_id)
-                if agent_ids:
-                    logger.info(f"[PREWARM] Installed Suna for new user {user_id[:8]}...")
-            except Exception as e:
-                logger.debug(f"[PREWARM] Could not ensure Suna for {user_id[:8]}...: {e}")
         
         if not agent_ids:
             logger.debug(f"[PREWARM] No agents for user {user_id[:8]}...")

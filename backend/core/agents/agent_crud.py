@@ -49,46 +49,48 @@ async def update_agent(
 
         agent_metadata = existing_data.get('metadata', {})
         is_suna_agent = agent_metadata.get('is_suna_default', False)
+        is_centrally_managed = agent_metadata.get('centrally_managed', False)
         restrictions = agent_metadata.get('restrictions', {})
         
-        if is_suna_agent:
-            logger.warning(f"Update attempt on Suna default agent {agent_id} by user {user_id}")
+        if is_centrally_managed:
+            logger.warning(f"Update attempt on centrally managed agent {agent_id} by user {user_id}")
+            agent_name = existing_data.get('name') or 'This worker'
             
             if (agent_data.name is not None and 
                 agent_data.name != existing_data.get('name') and 
                 restrictions.get('name_editable') == False):
-                logger.error(f"User {user_id} attempted to modify restricted name of Suna agent {agent_id}")
+                logger.error(f"User {user_id} attempted to modify restricted name of managed agent {agent_id}")
                 raise HTTPException(
                     status_code=403,
-                    detail="Mira's name cannot be modified. This restriction is managed centrally."
+                    detail=f"{agent_name}'s name cannot be modified. This restriction is managed centrally."
                 )
             
             
             if (agent_data.system_prompt is not None and 
                 restrictions.get('system_prompt_editable') == False):
-                logger.error(f"User {user_id} attempted to modify restricted system prompt of Suna agent {agent_id}")
+                logger.error(f"User {user_id} attempted to modify restricted system prompt of managed agent {agent_id}")
                 raise HTTPException(
                     status_code=403,
-                    detail="Mira's system prompt cannot be modified. This is managed centrally to ensure optimal performance."
+                    detail=f"{agent_name}'s system prompt cannot be modified. This is managed centrally to ensure consistent behavior."
                 )
             
             if (agent_data.agentpress_tools is not None and 
                 restrictions.get('tools_editable') == False):
-                logger.error(f"User {user_id} attempted to modify restricted tools of Suna agent {agent_id}")
+                logger.error(f"User {user_id} attempted to modify restricted tools of managed agent {agent_id}")
                 raise HTTPException(
                     status_code=403,
-                    detail="Mira's default tools cannot be modified. These tools are optimized for Mira's capabilities."
+                    detail=f"{agent_name}'s default tools cannot be modified. These tools are managed centrally."
                 )
             
             if ((agent_data.configured_mcps is not None or agent_data.custom_mcps is not None) and 
                 restrictions.get('mcps_editable') == False):
-                logger.error(f"User {user_id} attempted to modify restricted MCPs of Suna agent {agent_id}")
+                logger.error(f"User {user_id} attempted to modify restricted MCPs of managed agent {agent_id}")
                 raise HTTPException(
                     status_code=403,
-                    detail="Mira's integrations cannot be modified."
+                    detail=f"{agent_name}'s integrations cannot be modified."
                 )
             
-            logger.debug(f"Suna agent update validation passed for agent {agent_id} by user {user_id}")
+            logger.debug(f"Managed agent update validation passed for agent {agent_id} by user {user_id}")
 
         current_version_data = None
         if existing_data.get('current_version_id'):
@@ -406,8 +408,8 @@ async def delete_agent(agent_id: str, user_id: str = Depends(verify_and_get_user
         if agent['is_default']:
             raise HTTPException(status_code=400, detail="Cannot delete default agent")
         
-        if agent.get('metadata', {}).get('is_suna_default', False):
-            raise HTTPException(status_code=400, detail="Cannot delete Mira default agent")
+        if agent.get('metadata', {}).get('centrally_managed', False):
+            raise HTTPException(status_code=400, detail="Cannot delete centrally managed official workers")
         
         # Clean up triggers before deleting agent
         try:

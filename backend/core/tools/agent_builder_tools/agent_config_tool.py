@@ -98,10 +98,9 @@ class AgentConfigTool(AgentBuilderBaseTool):
             current_agent = agent_result.data[0]
 
             metadata = current_agent.get('metadata', {})
-            is_suna_default = metadata.get('is_suna_default', False)
+            is_centrally_managed = metadata.get('centrally_managed', False)
             
-            # Enforce Suna restrictions (simplified)
-            if is_suna_default:
+            if is_centrally_managed:
                 restricted_fields = []
                 if name is not None:
                     restricted_fields.append("name")
@@ -112,8 +111,8 @@ class AgentConfigTool(AgentBuilderBaseTool):
                 
                 if restricted_fields:
                     return self.fail_response(
-                        f"Cannot modify {', '.join(restricted_fields)} for Mira. "
-                        f"Mira's core identity is centrally managed. You can still add MCPs and triggers."
+                        f"Cannot modify {', '.join(restricted_fields)} for this official worker. "
+                        f"Its core identity is centrally managed. You can still add MCPs and triggers when allowed."
                     )
 
             agent_update_fields = {}
@@ -317,4 +316,4 @@ class AgentConfigTool(AgentBuilderBaseTool):
             
         except Exception as e:
             logger.error(f"Error getting agent configuration: {str(e)}")
-            return self.fail_response("Error getting agent configuration") 
+            return self.fail_response("Error getting agent configuration")

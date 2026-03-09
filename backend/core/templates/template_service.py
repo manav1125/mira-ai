@@ -195,8 +195,8 @@ class TemplateService:
         if agent['account_id'] != creator_id:
             raise TemplateAccessDeniedError("You can only create templates from your own agents")
         
-        if self._is_suna_default_agent(agent):
-            raise SunaDefaultAgentTemplateError("Cannot create template from Mira default agent")
+        if self._is_suna_default_agent(agent) or (agent.get('metadata', {}) or {}).get('centrally_managed', False):
+            raise SunaDefaultAgentTemplateError("Cannot create templates from centrally managed official workers")
         
         version_config = await self._get_agent_version_config(agent)
         if not version_config:

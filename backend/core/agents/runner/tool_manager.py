@@ -192,8 +192,7 @@ class ToolManager:
         if not self.agent_config:
             return False
 
-        # Default Suna/Kortex chat worker: do not expose agent-builder tools.
-        if self.agent_config.get('is_suna_default', False):
+        if self.agent_config.get('centrally_managed', False):
             return False
 
         return True

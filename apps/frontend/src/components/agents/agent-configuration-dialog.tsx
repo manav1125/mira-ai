@@ -173,10 +173,11 @@ export function AgentConfigurationDialog({
   }, [agent, versionData]);
 
   const isSunaAgent = agent?.metadata?.is_suna_default || false;
+  const isCentrallyManaged = agent?.metadata?.centrally_managed || false;
   const restrictions = agent?.metadata?.restrictions || {};
-  const isNameEditable = !isViewingOldVersion && (restrictions.name_editable !== false) && !isSunaAgent;
-  const isSystemPromptEditable = !isViewingOldVersion && (restrictions.system_prompt_editable !== false) && !isSunaAgent;
-  const areToolsEditable = !isViewingOldVersion && (restrictions.tools_editable !== false) && !isSunaAgent;
+  const isNameEditable = !isViewingOldVersion && (restrictions.name_editable !== false) && !isCentrallyManaged;
+  const isSystemPromptEditable = !isViewingOldVersion && (restrictions.system_prompt_editable !== false) && !isCentrallyManaged;
+  const areToolsEditable = !isViewingOldVersion && (restrictions.tools_editable !== false) && !isCentrallyManaged;
 
   const hasChanges = useMemo(() => {
     return JSON.stringify(formData) !== JSON.stringify(originalFormData);
@@ -243,9 +244,9 @@ export function AgentConfigurationDialog({
     }
 
     if (!isNameEditable) {
-      if (isSunaAgent) {
+      if (isCentrallyManaged) {
         toast.error("Name cannot be edited", {
-          description: "VentureVerse's name is managed centrally and cannot be changed.",
+          description: `${formData.name || 'This worker'} is managed centrally and cannot be renamed.`,
         });
       }
       setEditName(formData.name);
@@ -259,9 +260,9 @@ export function AgentConfigurationDialog({
 
   const handleSystemPromptChange = (value: string) => {
     if (!isSystemPromptEditable) {
-      if (isSunaAgent) {
+      if (isCentrallyManaged) {
         toast.error("System prompt cannot be edited", {
-          description: "VentureVerse's system prompt is managed centrally.",
+          description: `${formData.name || 'This worker'} uses a centrally managed system prompt.`,
         });
       }
       return;
@@ -276,9 +277,9 @@ export function AgentConfigurationDialog({
 
   const handleToolsChange = (tools: Record<string, boolean | { enabled: boolean; description: string }>) => {
     if (!areToolsEditable) {
-      if (isSunaAgent) {
+      if (isCentrallyManaged) {
         toast.error("Tools cannot be edited", {
-          description: "VentureVerse's tools are managed centrally.",
+          description: `${formData.name || 'This worker'} uses centrally managed tools.`,
         });
       }
       return;
@@ -648,11 +649,11 @@ export function AgentConfigurationDialog({
 
                 <TabsContent value="instructions" className="p-6 mt-0 flex flex-col h-full">
                   <div className="flex flex-col flex-1 min-h-0">
-                    {isSunaAgent && (
+                    {isCentrallyManaged && (
                       <Alert className="mb-4 bg-blue-50 border-blue-200 dark:bg-blue-950/20 dark:border-blue-900">
                         <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                         <AlertDescription className="text-sm text-blue-800 dark:text-blue-300">
-                          You can't edit the main VentureVerse, but you can create a new AI Worker that you can modify as you wish.
+                          This official worker is managed centrally. Create a separate worker if you want to customize its core behavior.
                         </AlertDescription>
                       </Alert>
                     )}
@@ -669,11 +670,11 @@ export function AgentConfigurationDialog({
 
                 <TabsContent value="tools" className="p-6 mt-0 flex flex-col h-full">
                   <div className="flex flex-col flex-1 min-h-0 h-full">
-                    {isSunaAgent && (
+                    {isCentrallyManaged && (
                       <Alert className="mb-4 bg-blue-50 border-blue-200 dark:bg-blue-950/20 dark:border-blue-900">
                         <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                         <AlertDescription className="text-sm text-blue-800 dark:text-blue-300">
-                          You can't edit the main VentureVerse, but you can create a new AI Worker that you can modify as you wish.
+                          This official worker is managed centrally. Create a separate worker if you want to customize its core behavior.
                         </AlertDescription>
                       </Alert>
                     )}

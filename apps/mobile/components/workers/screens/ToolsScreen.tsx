@@ -118,8 +118,9 @@ export function ToolsScreen({ agentId, onUpdate }: ToolsScreenProps) {
   }, [agent?.agentpress_tools]);
 
   const isSunaAgent = agent?.metadata?.is_suna_default || false;
+  const isCentrallyManaged = agent?.metadata?.centrally_managed || false;
   const restrictions = agent?.metadata?.restrictions || {};
-  const areToolsEditable = restrictions.tools_editable !== false && !isSunaAgent;
+  const areToolsEditable = restrictions.tools_editable !== false && !isCentrallyManaged;
 
   const handleToolToggle = (toolName: string, enabled: boolean) => {
     if (!areToolsEditable) return;
@@ -245,12 +246,16 @@ export function ToolsScreen({ agentId, onUpdate }: ToolsScreenProps) {
     if (!hasChanges) return;
 
     const isSunaAgent = agent?.metadata?.is_suna_default || false;
+    const isCentrallyManaged = agent?.metadata?.centrally_managed || false;
     const restrictions = agent?.metadata?.restrictions || {};
-    const areToolsEditable = restrictions.tools_editable !== false && !isSunaAgent;
+    const areToolsEditable = restrictions.tools_editable !== false && !isCentrallyManaged;
 
     if (!areToolsEditable) {
-      if (isSunaAgent) {
-        Alert.alert(t('workers.cannotEditTools'), t('workers.sunaToolsManagedAlert'));
+      if (isCentrallyManaged) {
+        Alert.alert(
+          t('workers.cannotEditTools'),
+          isSunaAgent ? t('workers.sunaToolsManagedAlert') : t('workers.instructions.cannotEdit')
+        );
       }
       return;
     }

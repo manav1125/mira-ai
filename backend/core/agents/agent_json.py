@@ -300,6 +300,7 @@ class JsonImportService:
             icon_color=insert_data.get("icon_color", "#000000"),
             icon_background=insert_data.get("icon_background", "#F3F4F6"),
             is_default=insert_data.get("is_default", False),
+            description=insert_data.get("description"),
             metadata=insert_data.get("metadata", {})
         )
         

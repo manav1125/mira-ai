@@ -86,6 +86,7 @@ const AgentModal: React.FC<AgentModalProps> = ({
   if (!agent) return null;
 
   const isSunaAgent = agent.metadata?.is_suna_default || false;
+  const isManagedOfficial = agent.metadata?.centrally_managed || false;
   
   const truncateDescription = (text?: string, maxLength = 120) => {
     if (!text || text.length <= maxLength) return text || 'Try out this agent';
@@ -120,6 +121,11 @@ const AgentModal: React.FC<AgentModalProps> = ({
                     {agent.current_version.version_name}
                   </Badge>
                 )}
+                {isManagedOfficial && !isSunaAgent && (
+                  <Badge variant="outline" className="text-xs">
+                    Official
+                  </Badge>
+                )}
                 {agent.is_public && (
                   <Badge variant="outline" className="text-xs">
                     <Shield className="h-3 w-3 mr-1" />
@@ -146,7 +152,7 @@ const AgentModal: React.FC<AgentModalProps> = ({
                 Chat
               </Button>
             </div>
-            {!isSunaAgent && isStagingMode && (
+            {!isManagedOfficial && isStagingMode && (
               <div className="pt-2">
                 {agent.is_public ? (
                   <div className="space-y-2">
@@ -308,7 +314,7 @@ export const AgentsGrid: React.FC<AgentsGridProps> = ({
                 />
               </div>
               <div className={`absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity ${isDeleting ? 'pointer-events-none' : ''}`}>
-                {!agent.is_default && (
+                {!agent.is_default && !agent.metadata?.centrally_managed && (
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <Button 

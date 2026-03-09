@@ -22,14 +22,15 @@ export function WorkflowsScreen({ agentId }: WorkflowsScreenProps) {
     }, [agent?.agentpress_tools]);
 
     const isSunaAgent = agent?.metadata?.is_suna_default || false;
+    const isCentrallyManaged = agent?.metadata?.centrally_managed || false;
     const restrictions = agent?.metadata?.restrictions || {};
-    const areToolsEditable = (restrictions.tools_editable !== false) && !isSunaAgent;
+    const areToolsEditable = (restrictions.tools_editable !== false) && !isCentrallyManaged;
 
     const handleToolsChange = async (newTools: Record<string, boolean | { enabled: boolean; description: string }>) => {
         if (!areToolsEditable) {
-            if (isSunaAgent) {
+            if (isCentrallyManaged) {
                 toast.error("Tools cannot be edited", {
-                    description: "VentureVerse's tools are managed centrally.",
+                    description: `${agent?.name || 'This worker'} uses centrally managed tools.`,
                 });
             }
             return;

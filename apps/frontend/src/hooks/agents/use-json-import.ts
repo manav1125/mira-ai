@@ -1,6 +1,7 @@
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/lib/toast';
 import { backendApi } from '@/lib/api-client';
+import { agentKeys } from './keys';
 
 interface JsonAnalysisRequest {
   json_data: Record<string, any>;
@@ -65,6 +66,8 @@ export const useAnalyzeJsonForImport = () => {
 };
 
 export const useImportAgentFromJson = () => {
+  const queryClient = useQueryClient();
+
   return useMutation<JsonImportResult, Error, JsonImportRequest>({
     mutationFn: async (request) => {
       try {
@@ -89,6 +92,7 @@ export const useImportAgentFromJson = () => {
     },
     onSuccess: (data) => {
       if (data?.status === 'success') {
+        queryClient.invalidateQueries({ queryKey: agentKeys.lists() });
         toast.success('Worker imported successfully!');
       }
     },
@@ -103,4 +107,4 @@ export const useImportAgentFromJson = () => {
   });
 };
 
-export type { JsonAnalysisRequest, JsonAnalysisResult, JsonImportRequest, JsonImportResult }; 
+export type { JsonAnalysisRequest, JsonAnalysisResult, JsonImportRequest, JsonImportResult };

@@ -22,15 +22,15 @@ export function InstructionsScreen({ agentId }: InstructionsScreenProps) {
         }
     }, [agent?.system_prompt]);
 
-    const isSunaAgent = agent?.metadata?.is_suna_default || false;
+    const isCentrallyManaged = agent?.metadata?.centrally_managed || false;
     const restrictions = agent?.metadata?.restrictions || {};
-    const isEditable = (restrictions.system_prompt_editable !== false) && !isSunaAgent;
+    const isEditable = (restrictions.system_prompt_editable !== false) && !isCentrallyManaged;
 
     const handleSave = async (value: string) => {
         if (!isEditable) {
-            if (isSunaAgent) {
+            if (isCentrallyManaged) {
                 toast.error("System prompt cannot be edited", {
-                    description: "VentureVerse's system prompt is managed centrally.",
+                    description: `${agent?.name || 'This worker'} uses a centrally managed system prompt.`,
                 });
             }
             return;
