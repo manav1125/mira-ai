@@ -101,11 +101,11 @@ async def list_memories(
         
         memories = [
             MemoryResponse(
-                memory_id=mem.memory_id,
+                memory_id=str(mem.memory_id),
                 content=mem.content,
                 memory_type=mem.memory_type.value,
                 confidence_score=mem.confidence_score,
-                source_thread_id=mem.source_thread_id,
+                source_thread_id=str(mem.source_thread_id) if mem.source_thread_id else None,
                 metadata=mem.metadata,
                 created_at=mem.created_at.isoformat() if mem.created_at else None,
                 updated_at=mem.updated_at.isoformat() if mem.updated_at else None
