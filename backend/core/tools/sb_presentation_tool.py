@@ -470,6 +470,22 @@ class SandboxPresentationTool(SandboxToolsBase):
                 f"({', '.join(sorted(set(placeholder_hits)))}). Replace placeholder copy with researched content."
             )
 
+        instruction_hits = []
+        instruction_patterns = {
+            "example copy": r"\bexample\s*:",
+            "generic instruction": r"\b(?:this slide|in this section|could include|should include)\b",
+            "placeholder investor phrasing": r"\b(?:highlight key|your startup|your company|relevant achievements)\b",
+        }
+        for label, pattern in instruction_patterns.items():
+            if re.search(pattern, lowered):
+                instruction_hits.append(label)
+
+        if instruction_hits:
+            return (
+                "Slide content rejected because it still contains instruction/example placeholder copy "
+                f"({', '.join(sorted(set(instruction_hits)))}). Replace it with researched, presentation-ready content."
+            )
+
         class_attr_count = len(re.findall(r"\bclass\s*=", slide_content, flags=re.IGNORECASE))
         inline_style_count = len(re.findall(r"\bstyle\s*=", slide_content, flags=re.IGNORECASE))
         has_style_block = "<style" in lowered
@@ -560,12 +576,136 @@ class SandboxPresentationTool(SandboxToolsBase):
         }
         return all(tag in simple_tags for tag in tags)
 
+    def _is_instruction_like_text(self, value: str) -> bool:
+        normalized = re.sub(r"\s+", " ", (value or "").strip().lower())
+        if not normalized:
+            return False
+
+        patterns = [
+            r"^example\s*:",
+            r"\bfor example\b",
+            r"^this slide\b",
+            r"^in this section\b",
+            r"\bcould include\b",
+            r"\bshould include\b",
+            r"\bhighlight key\b",
+            r"\byour startup\b",
+            r"\byour company\b",
+            r"\brelevant achievements\b",
+            r"\bplaceholder\b",
+            r"\binsert your\b",
+            r"\bslidekit\b",
+            r"\bpresentation system 2025\b",
+        ]
+        return any(re.search(pattern, normalized) for pattern in patterns)
+
+    def _split_into_sentences(self, values: List[str]) -> List[str]:
+        sentences: List[str] = []
+        for value in values:
+            for sentence in re.split(r"(?<=[.!?;])\s+|\n+", value or ""):
+                cleaned = re.sub(r"\s+", " ", sentence).strip(" -•\t\r\n")
+                if not cleaned or self._is_instruction_like_text(cleaned):
+                    continue
+                sentences.append(cleaned)
+        return self._dedupe_text_items(sentences)
+
+    def _extract_structured_brief_sections(self, slide_content: str) -> Dict[str, Any]:
+        soup = BeautifulSoup(slide_content or "", "html.parser")
+        for tag in soup.find_all(["style", "script", "noscript"]):
+            tag.decompose()
+
+        single_labels = {
+            "title": "title",
+            "slide title": "title",
+            "headline": "title",
+            "kicker": "kicker",
+            "thesis": "lead",
+            "lead": "lead",
+            "objective": "lead",
+            "narrative": "lead",
+            "summary": "lead",
+            "visual brief": "visual_brief",
+            "visual": "visual_brief",
+            "image prompt": "visual_brief",
+        }
+        list_labels = {
+            "evidence": "evidence",
+            "supporting points": "evidence",
+            "proof points": "evidence",
+            "key points": "key_points",
+            "bullets": "key_points",
+            "metrics": "metrics",
+            "stats": "metrics",
+        }
+        sections: Dict[str, Any] = {
+            "title": "",
+            "kicker": "",
+            "lead": "",
+            "visual_brief": "",
+            "evidence": [],
+            "key_points": [],
+            "metrics": [],
+        }
+
+        current_list_key: Optional[str] = None
+        for raw_line in soup.get_text("\n", strip=False).splitlines():
+            line = re.sub(r"\s+", " ", unquote(raw_line or "")).strip()
+            if not line:
+                continue
+
+            bullet_match = re.match(r"^[•*\-–]\s*(.+)$", line)
+            if bullet_match and current_list_key:
+                candidate = bullet_match.group(1).strip()
+                if candidate and not self._is_instruction_like_text(candidate):
+                    sections[current_list_key].append(candidate)
+                continue
+
+            label_match = re.match(r"^([A-Za-z][A-Za-z\s/&-]{1,40}):\s*(.*)$", line)
+            if label_match:
+                label = label_match.group(1).strip().lower()
+                remainder = label_match.group(2).strip()
+
+                if label in single_labels:
+                    current_list_key = None
+                    if remainder and not self._is_instruction_like_text(remainder):
+                        sections[single_labels[label]] = remainder
+                    continue
+
+                if label in list_labels:
+                    current_list_key = list_labels[label]
+                    if remainder and not self._is_instruction_like_text(remainder):
+                        sections[current_list_key].append(remainder)
+                    continue
+
+            if current_list_key and not self._is_instruction_like_text(line):
+                sections[current_list_key].append(line)
+
+        for key, value in sections.items():
+            if isinstance(value, list):
+                sections[key] = self._dedupe_text_items(value)
+        return sections
+
+    def _extract_metric_phrases(self, values: List[str]) -> List[str]:
+        metric_candidates: List[str] = []
+        metric_pattern = re.compile(
+            r"(\$?\d[\d,]*(?:\.\d+)?(?:\+|%|x)?|\b\d[\d,]*(?:\.\d+)?\s*(?:million|billion|thousand|users|founders|customers|partners|markets)\b)",
+            flags=re.IGNORECASE,
+        )
+        for value in values:
+            if not value or self._is_instruction_like_text(value):
+                continue
+            if metric_pattern.search(value):
+                metric_candidates.append(value)
+        return self._dedupe_text_items(metric_candidates)[:3]
+
     def _dedupe_text_items(self, values: List[str]) -> List[str]:
         seen = set()
         deduped: List[str] = []
         for value in values:
             normalized = re.sub(r"\s+", " ", (value or "").strip())
             if not normalized:
+                continue
+            if self._is_instruction_like_text(normalized):
                 continue
             lowered = normalized.lower()
             if lowered in seen:
@@ -578,6 +718,7 @@ class SandboxPresentationTool(SandboxToolsBase):
         soup = BeautifulSoup(slide_content or "", "html.parser")
         for tag in soup.find_all(["style", "script", "noscript"]):
             tag.decompose()
+        structured_sections = self._extract_structured_brief_sections(slide_content)
 
         def clean_text(value: str) -> str:
             return re.sub(r"\s+", " ", unquote(value or "")).strip()
@@ -625,26 +766,56 @@ class SandboxPresentationTool(SandboxToolsBase):
             fallback_texts.append(text)
 
         fallback_texts = self._dedupe_text_items(fallback_texts)
-        title_text = headings[0] if headings else clean_text(slide_title) or (fallback_texts[0] if fallback_texts else "Slide")
+        title_text = (
+            structured_sections.get("title")
+            or (headings[0] if headings else "")
+            or clean_text(slide_title)
+            or (fallback_texts[0] if fallback_texts else "Slide")
+        )
 
-        narrative_pool = self._dedupe_text_items(paragraphs + quotes + fallback_texts)
+        sentence_pool = self._split_into_sentences(paragraphs + quotes + fallback_texts)
+        narrative_pool = self._dedupe_text_items(
+            ([structured_sections.get("lead")] if structured_sections.get("lead") else [])
+            + paragraphs
+            + quotes
+            + sentence_pool
+            + fallback_texts
+        )
         narrative_pool = [item for item in narrative_pool if item.lower() != title_text.lower()]
 
-        lead = narrative_pool[0] if narrative_pool else ""
-        supporting = [item for item in narrative_pool[1:] if item.lower() != lead.lower()][:3]
+        lead = structured_sections.get("lead") or (narrative_pool[0] if narrative_pool else "")
+        supporting_candidates = self._dedupe_text_items(
+            structured_sections.get("evidence", [])
+            + structured_sections.get("key_points", [])
+            + bullets
+            + sentence_pool
+            + narrative_pool[1:]
+        )
+        supporting = [item for item in supporting_candidates if item.lower() != (lead or "").lower()][:4]
 
-        key_points = bullets[:4]
+        key_points = self._dedupe_text_items(
+            structured_sections.get("key_points", [])
+            + structured_sections.get("evidence", [])
+            + bullets
+            + supporting
+        )[:5]
         if not key_points:
             key_points = [item for item in supporting[:4] if len(item) <= 180]
 
         if not supporting and lead:
-            supporting = [lead]
+            supporting = [item for item in self._split_into_sentences([lead]) if item.lower() != lead.lower()][:3]
 
         kicker = ""
-        if len(headings) > 1:
+        if structured_sections.get("kicker"):
+            kicker = structured_sections["kicker"]
+        elif len(headings) > 1:
             kicker = headings[1]
         elif slide_title and clean_text(slide_title).lower() != title_text.lower():
             kicker = clean_text(slide_title)
+
+        metrics = self._dedupe_text_items(
+            structured_sections.get("metrics", []) + self._extract_metric_phrases(key_points + supporting + narrative_pool)
+        )[:3]
 
         return {
             "title": title_text,
@@ -652,6 +823,8 @@ class SandboxPresentationTool(SandboxToolsBase):
             "lead": lead,
             "supporting": supporting,
             "key_points": key_points,
+            "metrics": metrics,
+            "visual_brief": structured_sections.get("visual_brief") or "",
             "image": images[0] if images else None,
         }
 
@@ -773,6 +946,18 @@ class SandboxPresentationTool(SandboxToolsBase):
                 if Path(file_name).suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp", ".svg"}:
                     continue
                 relative_path = os.path.relpath(os.path.join(root, file_name), template_path).replace("\\", "/")
+                if relative_path.lower() in {
+                    "image.png",
+                    "image.jpg",
+                    "image.jpeg",
+                    "preview.png",
+                    "preview.jpg",
+                    "preview.jpeg",
+                    "thumbnail.png",
+                    "thumbnail.jpg",
+                    "thumbnail.jpeg",
+                }:
+                    continue
                 asset_paths.append(relative_path)
 
         return sorted(asset_paths)
@@ -785,12 +970,17 @@ class SandboxPresentationTool(SandboxToolsBase):
         scored_assets = []
         for asset in assets:
             lower = asset.lower()
+            if lower in {"image.png", "image.jpg", "image.jpeg", "preview.png", "preview.jpg", "preview.jpeg"}:
+                continue
             score = 100
             for index, keyword in enumerate(preferred_keywords):
                 if keyword in lower:
                     score = index
                     break
             scored_assets.append((score, asset))
+
+        if not scored_assets:
+            return None
 
         scored_assets.sort(key=lambda item: (item[0], item[1]))
         return scored_assets[0][1]
@@ -826,6 +1016,7 @@ class SandboxPresentationTool(SandboxToolsBase):
     def _choose_layout_variant(self, semantics: Dict[str, object], slide_number: int) -> str:
         title = str(semantics.get("title") or "").lower()
         key_points = semantics.get("key_points", []) or []
+        metrics = semantics.get("metrics", []) or []
 
         if slide_number == 1 or any(token in title for token in ("title", "cover", "welcome", "intro")):
             return "cover"
@@ -833,9 +1024,41 @@ class SandboxPresentationTool(SandboxToolsBase):
             return "timeline"
         if any(token in title for token in ("thank", "closing", "next steps", "contact")):
             return "closing"
+        if metrics and any(token in title for token in ("traction", "market", "growth", "business model", "ask", "financial", "opportunity")):
+            return "metrics"
         if len(key_points) >= 4:
             return "bullet_grid"
         return "split"
+
+    def _extract_subject_hint(self, deck_title: str, slide_title: str) -> str:
+        source = (deck_title or slide_title or "the subject").strip()
+        source = re.sub(
+            r"\b(investor|pitch|deck|presentation|slides|template|strategy|overview|premium|black)\b",
+            " ",
+            source,
+            flags=re.IGNORECASE,
+        )
+        source = re.sub(r"\s+", " ", source).strip(" -_:")
+        return source or slide_title or deck_title or "the subject"
+
+    def _build_metric_cards(self, metrics: List[str]) -> List[Dict[str, str]]:
+        cards: List[Dict[str, str]] = []
+        for metric in metrics[:3]:
+            display_match = re.search(
+                r"(\$?\d[\d,]*(?:\.\d+)?(?:\+|%|x)?|\b\d[\d,]*(?:\.\d+)?\s*(?:million|billion|thousand)\b)",
+                metric,
+                flags=re.IGNORECASE,
+            )
+            if display_match:
+                display = display_match.group(1).strip()
+                label = metric.replace(display_match.group(1), "", 1).strip(" :-,")
+                label = label or metric
+            else:
+                parts = metric.split(" ", 1)
+                display = parts[0]
+                label = parts[1] if len(parts) > 1 else metric
+            cards.append({"display": display, "label": label})
+        return cards
 
     def _build_slide_visual_prompt(
         self,
@@ -846,30 +1069,61 @@ class SandboxPresentationTool(SandboxToolsBase):
         title = str(semantics.get("title") or "Presentation Slide").strip()
         lead = str(semantics.get("lead") or "").strip()
         key_points = [str(item).strip() for item in semantics.get("key_points", [])[:4] if item]
+        metrics = [str(item).strip() for item in semantics.get("metrics", [])[:3] if item]
+        visual_brief = str(semantics.get("visual_brief") or "").strip()
         palette = theme_context.get("palette", {})
+        subject_hint = self._extract_subject_hint(str(theme_context.get("deck_title") or ""), title)
 
+        title_lower = title.lower()
         if layout_variant == "timeline":
-            visual_direction = "diagrammatic editorial illustration showing momentum, progression, milestones, and directional movement"
+            visual_direction = (
+                f"Create a presentation-grade milestone scene about {subject_hint} with visible progression, "
+                "clear pathing, and strategic motion cues. Show a literal roadmap rather than abstract color washes."
+            )
         elif layout_variant == "closing":
-            visual_direction = "cinematic premium closing visual with confident atmosphere, elegant lighting, and aspirational mood"
+            visual_direction = (
+                f"Create a premium closing scene for {subject_hint} with confident human energy, forward motion, "
+                "and a clear focal subject. Avoid blank or empty compositions."
+            )
         elif layout_variant == "cover":
-            visual_direction = "high-end hero visual with a single bold focal point, premium lighting, and ample negative space"
+            visual_direction = (
+                f"Create a high-end hero scene centered on {subject_hint}. The composition should feel specific to the topic, "
+                "editorial, and recognizably about the subject, not generic abstract startup art."
+            )
+        elif layout_variant == "metrics" or any(token in title_lower for token in ("traction", "market", "growth", "business model", "ask", "financial")):
+            visual_direction = (
+                f"Create an investor-grade visual about {subject_hint} that shows momentum, market scale, product value, or business performance "
+                "through a literal scene with data-informed objects, people, and ecosystem cues. Avoid screenshots and avoid pure abstract gradients."
+            )
+        elif any(token in title_lower for token in ("team", "founder", "leadership")):
+            visual_direction = (
+                f"Create a polished leadership or collaboration scene for {subject_hint} featuring confident professionals, "
+                "a modern working environment, and premium editorial lighting. Avoid stock-photo cliches."
+            )
         else:
-            visual_direction = "presentation-grade editorial illustration blending strategic storytelling with clean data-inspired composition"
+            visual_direction = (
+                f"Create a presentation-grade editorial illustration for {subject_hint} with a clear literal focal point, "
+                "strategic atmosphere, and a subject-specific scene rather than an abstract placeholder."
+            )
 
         context_bits = [lead] if lead else []
         if key_points:
             context_bits.append("Key themes: " + "; ".join(key_points))
+        if metrics:
+            context_bits.append("Evidence and metrics: " + "; ".join(metrics))
+        if visual_brief:
+            context_bits.append("Desired visual direction: " + visual_brief)
 
         return (
-            f"Create a premium 16:9 keynote slide visual for '{title}'. "
+            f"Create a premium 16:9 keynote slide visual for '{title}' in a deck about {subject_hint}. "
             f"{visual_direction}. "
             + (" ".join(context_bits) + " " if context_bits else "")
             + "Use a sophisticated palette inspired by "
             + f"{palette.get('background', '#0f172a')}, {palette.get('accent', '#38bdf8')}, and {palette.get('accent_secondary', '#8b5cf6')}. "
-            + "The image must feel polished, strategic, and presentation-ready. "
+            + "The image must feel polished, strategic, subject-specific, and presentation-ready. "
             + "No readable text, no letters, no UI screenshots, no memes, no watermarks, no collage. "
-            + "Leave clean compositional space so slide copy can sit clearly beside or over the visual."
+            + "Avoid blank dark panels, empty abstract gradients, or low-detail filler imagery. "
+            + "Use one strong focal scene with depth, lighting, and enough visual detail to carry an investor-grade slide."
         )
 
     async def _generate_slide_visual_asset(
@@ -958,6 +1212,7 @@ class SandboxPresentationTool(SandboxToolsBase):
         lead_text = escape(str(semantics.get("lead") or title_text))
         supporting = [escape(item) for item in semantics.get("supporting", [])[:2] if item]
         key_points = [escape(item) for item in semantics.get("key_points", [])[:5] if item]
+        metric_cards = self._build_metric_cards([str(item) for item in semantics.get("metrics", []) if item])
         image_alt = title_text
 
         primary_visual = visual_src or background_asset or ""
@@ -989,6 +1244,15 @@ class SandboxPresentationTool(SandboxToolsBase):
         support_markup = "".join(
             f'<div class="vv-support-card"><p>{paragraph}</p></div>'
             for paragraph in supporting
+        )
+        metrics_markup = "".join(
+            f"""
+            <div class="vv-metric-card">
+              <span class="vv-metric-display">{escape(card["display"])}</span>
+              <p class="vv-metric-label">{escape(card["label"])}</p>
+            </div>
+            """
+            for card in metric_cards
         )
 
         media_markup = ""
@@ -1026,7 +1290,19 @@ class SandboxPresentationTool(SandboxToolsBase):
               <p class="vv-kicker">{kicker_text}</p>
               <h1>{title_text}</h1>
               <p class="vv-lead">{lead_text}</p>
+              {'<div class="vv-metric-strip">' + metrics_markup + '</div>' if metrics_markup else ''}
               {'<div class="vv-support-grid">' + support_markup + '</div>' if support_markup else ''}
+            </div>
+            {media_markup}
+            """
+        elif layout_variant == "metrics":
+            layout_markup = f"""
+            <div class="vv-copy-column">
+              <p class="vv-kicker">{kicker_text}</p>
+              <h1>{title_text}</h1>
+              <p class="vv-lead">{lead_text}</p>
+              {'<div class="vv-metric-strip">' + metrics_markup + '</div>' if metrics_markup else ''}
+              {'<div class="vv-points-grid">' + bullet_markup + '</div>' if bullet_markup else ''}
             </div>
             {media_markup}
             """
@@ -1036,6 +1312,7 @@ class SandboxPresentationTool(SandboxToolsBase):
               <p class="vv-kicker">{kicker_text}</p>
               <h1>{title_text}</h1>
               <p class="vv-lead">{lead_text}</p>
+              {'<div class="vv-metric-strip">' + metrics_markup + '</div>' if metrics_markup else ''}
               {'<div class="vv-points-grid">' + bullet_markup + '</div>' if bullet_markup else ''}
               {'<div class="vv-support-grid">' + support_markup + '</div>' if support_markup else ''}
             </div>
@@ -1134,14 +1411,19 @@ class SandboxPresentationTool(SandboxToolsBase):
     color: {palette.get("text", "#f8fafc")};
   }}
   .vv-points-grid,
-  .vv-support-grid {{
+  .vv-support-grid,
+  .vv-metric-strip {{
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 18px;
   }}
+  .vv-metric-strip {{
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }}
   .vv-point-card,
   .vv-support-card,
-  .vv-timeline-item {{
+  .vv-timeline-item,
+  .vv-metric-card {{
     border-radius: 26px;
     padding: 22px 22px 24px;
     border: 1px solid {self._hex_to_rgba(palette.get("text", "#f8fafc"), 0.12)};
@@ -1165,11 +1447,20 @@ class SandboxPresentationTool(SandboxToolsBase):
   }}
   .vv-point-card p,
   .vv-support-card p,
-  .vv-timeline-copy {{
+  .vv-timeline-copy,
+  .vv-metric-label {{
     margin: 0;
     font-size: 23px;
     line-height: 1.45;
     color: {palette.get("text", "#f8fafc")};
+  }}
+  .vv-metric-display {{
+    display: block;
+    margin-bottom: 10px;
+    font-size: 36px;
+    line-height: 1;
+    font-weight: 800;
+    color: {palette.get("accent", "#38bdf8")};
   }}
   .vv-timeline-list {{
     display: grid;
@@ -1317,10 +1608,12 @@ class SandboxPresentationTool(SandboxToolsBase):
             return ""
 
     async def _copy_template_to_workspace(self, template_name: str, presentation_name: str) -> str:
-        """Copy entire template directory structure to workspace using os.walk
-        
-        Returns:
-            The presentation path in the workspace
+        """
+        Initialize a template-backed presentation in the workspace.
+
+        Copy visual assets into the live presentation directory, but keep template HTML
+        slides hidden under `.template_reference/` so placeholder template slides do not
+        appear as part of the active deck unless explicitly promoted via populate_template_slide.
         """
         await self._ensure_sandbox()
         await self._ensure_presentations_dir()
@@ -1328,68 +1621,66 @@ class SandboxPresentationTool(SandboxToolsBase):
         template_path = os.path.join(self.templates_dir, template_name)
         safe_name = self._sanitize_filename(presentation_name)
         presentation_path = f"{self.workspace_path}/{self.presentations_dir}/{safe_name}"
+        template_reference_path = f"{presentation_path}/.template_reference"
         
         # Ensure presentation directory exists
         await self._ensure_presentation_dir(presentation_name)
+        try:
+            await self.sandbox.fs.create_folder(template_reference_path, "755")
+        except:
+            pass
         
-        # Use os.walk to recursively copy all files
-        copied_files = []
+        copied_assets: List[str] = []
         for root, dirs, files in os.walk(template_path):
-            # Calculate relative path from template root
             rel_path = os.path.relpath(root, template_path)
-            
-            # Create corresponding directory in workspace (if not root)
-            if rel_path != '.':
-                target_dir = os.path.join(presentation_path, rel_path)
-                target_dir_path = target_dir.replace('\\', '/')  # Normalize path separators
-                try:
-                    await self.sandbox.fs.create_folder(target_dir_path, "755")
-                except:
-                    pass  # Directory might already exist
-            else:
-                target_dir_path = presentation_path
-            
-            # Copy all files
             for file in files:
                 source_file = os.path.join(root, file)
                 rel_file_path = os.path.relpath(source_file, template_path)
-                target_file = os.path.join(presentation_path, rel_file_path).replace('\\', '/')
+                suffix = Path(file).suffix.lower()
+                target_root = template_reference_path if suffix == ".html" else presentation_path
+                target_file = os.path.join(target_root, rel_file_path).replace('\\', '/')
+                target_dir_path = os.path.dirname(target_file)
+                if target_dir_path:
+                    try:
+                        await self.sandbox.fs.create_folder(target_dir_path, "755")
+                    except:
+                        pass
                 
                 try:
                     with open(source_file, 'rb') as f:
                         file_content = f.read()
                     await self.sandbox.fs.upload_file(file_content, target_file)
-                    copied_files.append(rel_file_path)
+                    if suffix in {".png", ".jpg", ".jpeg", ".webp", ".svg"}:
+                        relative_asset = rel_file_path.replace("\\", "/")
+                        if relative_asset.lower() not in {
+                            "image.png",
+                            "image.jpg",
+                            "image.jpeg",
+                            "preview.png",
+                            "preview.jpg",
+                            "preview.jpeg",
+                            "thumbnail.png",
+                            "thumbnail.jpg",
+                            "thumbnail.jpeg",
+                        }:
+                            copied_assets.append(relative_asset)
                 except Exception as e:
-                    # Log error but continue with other files
                     print(f"Error copying {rel_file_path}: {str(e)}")
         
-        # Update metadata.json with correct paths for the new presentation
-        metadata = await self._load_presentation_metadata(presentation_path)
         template_metadata = self._load_template_metadata(template_name)
-        
-        # Update presentation name and preserve slides structure
-        metadata["presentation_name"] = presentation_name
-        metadata["title"] = presentation_name
-        metadata["description"] = template_metadata.get("description", "")
-        metadata["created_at"] = datetime.now().isoformat()
-        metadata["updated_at"] = datetime.now().isoformat()
-        
-        # Update slide paths to match new presentation name
-        if "slides" in template_metadata:
-            updated_slides = {}
-            for slide_num, slide_data in template_metadata["slides"].items():
-                slide_filename = slide_data.get("filename", f"slide_{int(slide_num):02d}.html")
-                updated_slides[str(slide_num)] = {
-                    "title": f"Slide {slide_num}",
-                    "filename": slide_filename,
-                    "file_path": f"{self.presentations_dir}/{safe_name}/{slide_filename}",
-                    "preview_url": f"{self.workspace_path}/{self.presentations_dir}/{safe_name}/{slide_filename}",
-                    "created_at": datetime.now().isoformat()
-                }
-            metadata["slides"] = updated_slides
-        
-        # Save updated metadata
+
+        metadata = {
+            "presentation_name": presentation_name,
+            "title": presentation_name,
+            "description": template_metadata.get("description", ""),
+            "slides": {},
+            "template_source": template_name,
+            "template_assets": sorted(set(copied_assets)),
+            "template_reference_dir": ".template_reference",
+            "template_slide_count": len(template_metadata.get("slides", {})),
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat(),
+        }
         await self._save_presentation_metadata(presentation_path, metadata)
         
         return presentation_path
@@ -1492,7 +1783,7 @@ class SandboxPresentationTool(SandboxToolsBase):
         "type": "function",
         "function": {
             "name": "load_template_design",
-            "description": "Load complete design reference from a presentation template including all slide HTML and extracted style patterns (colors, fonts, layouts). If presentation_name is provided, the entire template will be copied to /workspace/presentations/{presentation_name}/ so you can initialize a themed presentation and then use create_slide to overwrite slides with researched content while inheriting the template's design system and assets. Otherwise, use this template as DESIGN INSPIRATION ONLY - study the visual styling, CSS patterns, and layout structure to create your own original slides with similar aesthetics but completely different content.",
+            "description": "Load complete design reference from a presentation template including all slide HTML and extracted style patterns (colors, fonts, layouts). If presentation_name is provided, the template will initialize a themed presentation in /workspace/presentations/{presentation_name}/ by copying its visual assets and hidden reference slides, but the active deck remains empty until you create real slides with create_slide. Otherwise, use this template as DESIGN INSPIRATION ONLY - study the visual styling, CSS patterns, and layout structure to create your own original slides with similar aesthetics but completely different content.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1591,17 +1882,18 @@ class SandboxPresentationTool(SandboxToolsBase):
                 response_data["copied_to_workspace"] = True
                 response_data["requires_follow_up_edit"] = True
                 response_data["required_next_tool"] = "create_slide"
-                response_data["note"] = f"Template copied to /workspace/{self.presentations_dir}/{safe_name}/. **CRITICAL**: Use create_slide for the actual deck output. The initialized presentation now carries the template's design system and assets so create_slide can overwrite each slide with researched content while keeping the template's visual direction. Use populate_template_slide only for advanced exact-template surgery."
+                response_data["note"] = f"Template initialized at /workspace/{self.presentations_dir}/{safe_name}/. **CRITICAL**: The active deck starts empty on purpose so template placeholder slides do not leak into the result. Use create_slide for the actual deck output. The initialized presentation carries the template's design system, copied assets, and hidden reference slides so create_slide can render researched content with the template's visual direction. Use populate_template_slide only for advanced exact-template surgery."
                 response_data["usage_instructions"] = {
                     "purpose": "TEMPLATE INITIALIZED - Use create_slide to render researched slides with inherited template styling",
                     "do": [
-                        "Use create_slide on this same presentation_name to overwrite each copied slide with researched content",
+                        "Use create_slide on this same presentation_name to create the real slides with researched content",
                         "Let create_slide inherit the template colors, fonts, and background assets from the initialized deck",
                         "Use local workspace images such as ../images/... or let the slide renderer generate a premium visual when needed",
                         "Use populate_template_slide only when you specifically need exact DOM-preserving text swaps"
                     ],
                     "dont": [
                         "Do not end the workflow right after template copy",
+                        "Do not expect copied demo slides to be the final deck",
                         "Do not keep template placeholder text or example labels",
                         "Do not rely on exact text-matching surgery unless you intentionally need populate_template_slide",
                         "Do not use create_file for slide HTML"
@@ -1831,8 +2123,12 @@ class SandboxPresentationTool(SandboxToolsBase):
 
             try:
                 existing_html_raw = await self.sandbox.fs.download_file(slide_path)
-            except Exception as exc:
-                return self.fail_response(f"Template slide not found: {slide_filename} ({exc})")
+            except Exception:
+                reference_slide_path = f"{presentation_path}/.template_reference/{slide_filename}"
+                try:
+                    existing_html_raw = await self.sandbox.fs.download_file(reference_slide_path)
+                except Exception as exc:
+                    return self.fail_response(f"Template slide not found: {slide_filename} ({exc})")
 
             existing_html = existing_html_raw.decode() if isinstance(existing_html_raw, bytes) else str(existing_html_raw)
             soup = BeautifulSoup(existing_html, "html.parser")
@@ -1913,7 +2209,7 @@ class SandboxPresentationTool(SandboxToolsBase):
         "type": "function",
         "function": {
             "name": "create_slide",
-            "description": "Create or update a single slide in a presentation. **WHEN TO USE**: Use this for both custom-theme decks and template-initialized decks. If a template was initialized via load_template_design with presentation_name, this tool will inherit the template's design system and assets when rendering the slide. **WHEN TO SKIP**: Only skip this if you explicitly need exact DOM-preserving edits inside the copied template, in which case use populate_template_slide. **PARALLEL EXECUTION**: This function supports parallel execution - create ALL slides simultaneously by using create_slide multiple times in parallel for much faster completion. Each slide is saved as a standalone HTML file with 1920x1080 dimensions (16:9 aspect ratio). Slides are automatically validated to ensure both width (≤1920px) and height (≤1080px) limits are met. Use `box-sizing: border-box` on containers with padding to prevent dimension overflow. **CRITICAL**: You MUST have completed research, outline, and visual planning before using this tool. All styling MUST be derived from the custom color scheme/design elements or the initialized template design system. **IMAGE RULE**: Do not hotlink public internet image URLs directly in slide HTML - download them into presentations/images/ first. **PRESENTATION DESIGN NOT WEBSITE**: Use fixed pixel dimensions, absolute positioning, and fixed layouts - NO responsive design patterns. **🚨 PARAMETER NAMES**: Use EXACTLY these parameter names: `presentation_name` (REQUIRED), `slide_number` (REQUIRED), `slide_title` (REQUIRED), `content` (REQUIRED), `presentation_title` (optional). **❌ DO NOT USE**: `file_path` - this parameter does NOT exist!",
+            "description": "Create or update a single slide in a presentation. **WHEN TO USE**: Use this for both custom-theme decks and template-initialized decks. If a template was initialized via load_template_design with presentation_name, this tool will inherit the template's design system and assets when rendering the slide. **WHEN TO SKIP**: Only skip this if you explicitly need exact DOM-preserving edits inside the copied template, in which case use populate_template_slide. **PARALLEL EXECUTION**: This function supports parallel execution - create ALL slides simultaneously by using create_slide multiple times in parallel for much faster completion. Each slide is saved as a standalone HTML file with 1920x1080 dimensions (16:9 aspect ratio). Slides are automatically validated to ensure both width (≤1920px) and height (≤1080px) limits are met. Use `box-sizing: border-box` on containers with padding to prevent dimension overflow. **CRITICAL**: You MUST have completed research, outline, and visual planning before using this tool. All styling MUST be derived from the custom color scheme/design elements or the initialized template design system. **IMAGE RULE**: Do not hotlink public internet image URLs directly in slide HTML - download them into presentations/images/ first. **PRESENTATION DESIGN NOT WEBSITE**: Use fixed pixel dimensions, absolute positioning, and fixed layouts - NO responsive design patterns. **BEST INPUT FORMAT**: Prefer a research-backed slide brief with a clear thesis, 3-5 evidence bullets, 1-3 metrics/facts, and a visual brief; the tool can auto-render that into a polished slide. **🚨 PARAMETER NAMES**: Use EXACTLY these parameter names: `presentation_name` (REQUIRED), `slide_number` (REQUIRED), `slide_title` (REQUIRED), `content` (REQUIRED), `presentation_title` (optional). **❌ DO NOT USE**: `file_path` - this parameter does NOT exist!",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1931,7 +2227,7 @@ class SandboxPresentationTool(SandboxToolsBase):
                     },
                     "content": {
                         "type": "string",
-                        "description": """**REQUIRED** - HTML body content only (DO NOT include <!DOCTYPE>, <html>, <head>, or <body> tags - these are added automatically). Include your content with inline CSS or <style> blocks. Design for 1920x1080 resolution. Google Fonts (Inter) is pre-loaded for typography. D3.js and Chart.js are available asynchronously (won't block page load) - use them if needed, but pure CSS/HTML is recommended for static presentations. For icons, use emoji (📊 📈 💡 🚀 ⚡ 🎯) or Unicode symbols instead of icon libraries.
+                        "description": """**REQUIRED** - Either (A) HTML body content only (DO NOT include <!DOCTYPE>, <html>, <head>, or <body> tags - these are added automatically), or (B) a structured research-backed slide brief in plain text/markdown. Best results come from briefs that include: a thesis sentence, 3-5 evidence bullets, 1-3 metrics/facts, and a visual brief tied to the subject. The tool can auto-render those briefs into polished slides. If you do provide HTML, include your content with inline CSS or <style> blocks. Design for 1920x1080 resolution. Google Fonts (Inter) is pre-loaded for typography. D3.js and Chart.js are available asynchronously (won't block page load) - use them if needed, but pure CSS/HTML is recommended for static presentations. For icons, use emoji (📊 📈 💡 🚀 ⚡ 🎯) or Unicode symbols instead of icon libraries.
                         
                         **🚨 IMPORTANT - Pre-configured Body Styles**: The slide template ALREADY includes base body styling in the <head>:
                         ```
