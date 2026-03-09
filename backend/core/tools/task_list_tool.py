@@ -1,14 +1,18 @@
+import asyncio
+import json
+import uuid
+from enum import Enum
+from typing import Any, ClassVar, Dict, List, Optional
+
+from pydantic import BaseModel, Field
+
 from core.agentpress.tool import ToolResult, openapi_schema, tool_metadata
 from core.sandbox.tool_base import SandboxToolsBase
 from core.utils.logger import logger
-from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, Field
-from enum import Enum
-import json
-import uuid
 
 class TaskStatus(str, Enum):
     PENDING = "pending"
+    IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
 
@@ -50,6 +54,7 @@ Use this tool proactively in these scenarios:
 5. **After receiving new instructions** - Immediately capture user requirements as todos
 6. **When you start working on a task** - Mark it as in_progress BEFORE beginning work. Ideally you should only have one todo as in_progress at a time
 7. **After completing a task** - Mark it as completed and add any new follow-up tasks discovered during implementation
+8. **When discovering net-new work** - Add only the newly discovered tasks; never recreate an unchanged task list
 
 ### When NOT to Use This Tool
 Skip using this tool when:
@@ -78,6 +83,8 @@ NOTE: Do not use this tool if there is only one trivial task to do. Just do the 
 3. Exactly ONE task must be in_progress at any time (not less, not more)
 4. Complete current tasks before starting new ones
 5. Remove tasks that are no longer relevant from the list entirely
+6. Create the task list once, then use `view_tasks` and `update_tasks` to maintain it
+7. Never add duplicate tasks to the same section
 
 ### Task Completion Requirements
 
@@ -113,11 +120,86 @@ class TaskListTool(SandboxToolsBase):
     - Immediate status updates as work progresses
     - Living document that evolves with the work
     """
+    _thread_locks: ClassVar[dict[str, asyncio.Lock]] = {}
     
     def __init__(self, project_id: str, thread_manager, thread_id: str):
         super().__init__(project_id, thread_manager)
         self.thread_id = thread_id
         self.task_list_message_type = "task_list"
+        self._lock = self._thread_locks.setdefault(thread_id, asyncio.Lock())
+
+    @staticmethod
+    def _normalize_text(value: str) -> str:
+        return " ".join(value.strip().split()).casefold()
+
+    @classmethod
+    def _task_identity(cls, section_id: str, content: str) -> tuple[str, str]:
+        return (section_id, cls._normalize_text(content))
+
+    @staticmethod
+    def _task_status_priority(status: TaskStatus) -> int:
+        priorities = {
+            TaskStatus.CANCELLED: 0,
+            TaskStatus.PENDING: 1,
+            TaskStatus.IN_PROGRESS: 2,
+            TaskStatus.COMPLETED: 3,
+        }
+        return priorities.get(status, 0)
+
+    @classmethod
+    def _dedupe_tasks(cls, tasks: List[Task]) -> List[Task]:
+        deduped: dict[tuple[str, str], Task] = {}
+        ordered_keys: List[tuple[str, str]] = []
+
+        for task in tasks:
+            key = cls._task_identity(task.section_id, task.content)
+            existing = deduped.get(key)
+            if existing is None:
+                deduped[key] = task
+                ordered_keys.append(key)
+                continue
+
+            if cls._task_status_priority(task.status) > cls._task_status_priority(existing.status):
+                deduped[key] = task
+
+        return [deduped[key] for key in ordered_keys]
+
+    @classmethod
+    def _dedupe_sections(cls, sections: List[Section], tasks: List[Task]) -> tuple[List[Section], List[Task]]:
+        title_map: dict[str, Section] = {}
+        remapped_sections: List[Section] = []
+        section_id_map: dict[str, str] = {}
+
+        for section in sections:
+            normalized_title = cls._normalize_text(section.title)
+            existing = title_map.get(normalized_title)
+            if existing is None:
+                title_map[normalized_title] = section
+                remapped_sections.append(section)
+                section_id_map[section.id] = section.id
+                continue
+
+            section_id_map[section.id] = existing.id
+
+        if any(old_id != new_id for old_id, new_id in section_id_map.items()):
+            remapped_tasks: List[Task] = []
+            for task in tasks:
+                target_section_id = section_id_map.get(task.section_id, task.section_id)
+                if target_section_id == task.section_id:
+                    remapped_tasks.append(task)
+                    continue
+
+                remapped_tasks.append(
+                    Task(
+                        id=task.id,
+                        content=task.content,
+                        status=task.status,
+                        section_id=target_section_id,
+                    )
+                )
+            tasks = remapped_tasks
+
+        return remapped_sections, cls._dedupe_tasks(tasks)
     
     async def _load_data(self) -> tuple[List[Section], List[Task]]:
         """Load sections and tasks from storage"""
@@ -152,7 +234,7 @@ class TaskListTool(SandboxToolsBase):
                                 task.id = old_task['id']
                             tasks.append(task)
                 
-                return sections, tasks
+                return self._dedupe_sections(sections, tasks)
             
             return [], []
             
@@ -193,7 +275,6 @@ class TaskListTool(SandboxToolsBase):
     
     def _format_response(self, sections: List[Section], tasks: List[Task]) -> Dict[str, Any]:
         """Format data for response"""
-        section_map = {s.id: s for s in sections}
         grouped_tasks = {}
         
         for task in tasks:
@@ -214,13 +295,17 @@ class TaskListTool(SandboxToolsBase):
         
         # Calculate progress
         completed = sum(1 for t in tasks if t.status == TaskStatus.COMPLETED)
+        in_progress = sum(1 for t in tasks if t.status == TaskStatus.IN_PROGRESS)
         pending = sum(1 for t in tasks if t.status == TaskStatus.PENDING)
+        cancelled = sum(1 for t in tasks if t.status == TaskStatus.CANCELLED)
         
         return {
             "sections": formatted_sections,
             "total_tasks": len(tasks),
             "completed_tasks": completed,
+            "in_progress_tasks": in_progress,
             "pending_tasks": pending,
+            "cancelled_tasks": cancelled,
             "progress_percent": round((completed / len(tasks) * 100) if tasks else 0, 1),
             "total_sections": len(sections)
         }
@@ -252,7 +337,7 @@ class TaskListTool(SandboxToolsBase):
         "type": "function",
         "function": {
             "name": "create_tasks",
-            "description": "Create task list for Autonomous Task Execution mode. Creates sections and tasks that become your execution plan. Each task = one unit of work. Tasks execute in order. Use BEFORE starting complex work, or DURING execution to add discovered work.",
+            "description": "Create task list for Autonomous Task Execution mode. Creates sections and tasks that become your execution plan. Each task = one unit of work. Tasks execute in order. Use BEFORE starting complex work, or DURING execution only to add newly discovered work. Do not recreate the same list after it already exists.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -338,64 +423,90 @@ class TaskListTool(SandboxToolsBase):
                     else:
                         return ToolResult(success=False, output=f"❌ Invalid JSON in task_contents")
             
-            existing_sections, existing_tasks = await self._load_data()
-            section_map = {s.id: s for s in existing_sections}
-            title_map = {s.title.lower(): s for s in existing_sections}
-            
-            created_tasks = 0
-            created_sections = 0
-            
-            if sections:
-                for section_data in sections:
-                    section_title_input = section_data["title"]
-                    task_list = section_data["tasks"]
-                    
-                    title_lower = section_title_input.lower()
-                    if title_lower in title_map:
-                        target_section = title_map[title_lower]
-                    else:
-                        target_section = Section(title=section_title_input)
-                        existing_sections.append(target_section)
-                        title_map[title_lower] = target_section
-                        created_sections += 1
-                    
-                    for task_content in task_list:
-                        new_task = Task(content=task_content, section_id=target_section.id)
+            async with self._lock:
+                existing_sections, existing_tasks = await self._load_data()
+                section_map = {s.id: s for s in existing_sections}
+                title_map = {
+                    self._normalize_text(s.title): s for s in existing_sections
+                }
+                existing_task_keys = {
+                    self._task_identity(task.section_id, task.content) for task in existing_tasks
+                }
+
+                created_tasks = 0
+                created_sections = 0
+                skipped_duplicates = 0
+
+                if sections:
+                    for section_data in sections:
+                        section_title_input = section_data["title"]
+                        task_list = section_data["tasks"]
+
+                        normalized_title = self._normalize_text(section_title_input)
+                        if normalized_title in title_map:
+                            target_section = title_map[normalized_title]
+                        else:
+                            target_section = Section(title=section_title_input)
+                            existing_sections.append(target_section)
+                            title_map[normalized_title] = target_section
+                            section_map[target_section.id] = target_section
+                            created_sections += 1
+
+                        for task_content in task_list:
+                            task_key = self._task_identity(target_section.id, task_content)
+                            if task_key in existing_task_keys:
+                                skipped_duplicates += 1
+                                continue
+                            new_task = Task(content=task_content, section_id=target_section.id)
+                            existing_tasks.append(new_task)
+                            existing_task_keys.add(task_key)
+                            created_tasks += 1
+
+                else:
+                    if not task_contents:
+                        return ToolResult(success=False, output="❌ Provide 'sections' array OR 'task_contents' with section info")
+
+                    if not section_id and not section_title:
+                        return ToolResult(success=False, output="❌ Specify 'section_id' or 'section_title' with 'task_contents'")
+
+                    target_section = None
+
+                    if section_id:
+                        if section_id not in section_map:
+                            return ToolResult(success=False, output=f"❌ Section ID '{section_id}' not found")
+                        target_section = section_map[section_id]
+                    elif section_title:
+                        normalized_title = self._normalize_text(section_title)
+                        if normalized_title in title_map:
+                            target_section = title_map[normalized_title]
+                        else:
+                            target_section = Section(title=section_title)
+                            existing_sections.append(target_section)
+                            title_map[normalized_title] = target_section
+                            section_map[target_section.id] = target_section
+                            created_sections += 1
+
+                    for content in task_contents:
+                        task_key = self._task_identity(target_section.id, content)
+                        if task_key in existing_task_keys:
+                            skipped_duplicates += 1
+                            continue
+                        new_task = Task(content=content, section_id=target_section.id)
                         existing_tasks.append(new_task)
+                        existing_task_keys.add(task_key)
                         created_tasks += 1
-                        
-            else:
-                if not task_contents:
-                    return ToolResult(success=False, output="❌ Provide 'sections' array OR 'task_contents' with section info")
-                
-                if not section_id and not section_title:
-                    return ToolResult(success=False, output="❌ Specify 'section_id' or 'section_title' with 'task_contents'")
-                
-                target_section = None
-                
-                if section_id:
-                    if section_id not in section_map:
-                        return ToolResult(success=False, output=f"❌ Section ID '{section_id}' not found")
-                    target_section = section_map[section_id]
-                elif section_title:
-                    title_lower = section_title.lower()
-                    if title_lower in title_map:
-                        target_section = title_map[title_lower]
-                    else:
-                        target_section = Section(title=section_title)
-                        existing_sections.append(target_section)
-                        created_sections += 1
-                
-                for content in task_contents:
-                    new_task = Task(content=content, section_id=target_section.id)
-                    existing_tasks.append(new_task)
-                    created_tasks += 1
-            
-            await self._save_data(existing_sections, existing_tasks)
-            response_data = self._format_response(existing_sections, existing_tasks)
-            
+
+                existing_sections, existing_tasks = self._dedupe_sections(existing_sections, existing_tasks)
+                await self._save_data(existing_sections, existing_tasks)
+                response_data = self._format_response(existing_sections, existing_tasks)
+                if skipped_duplicates:
+                    response_data["message"] = (
+                        f"Skipped {skipped_duplicates} duplicate task"
+                        f"{'' if skipped_duplicates == 1 else 's'} while keeping the existing task list."
+                    )
+
             return ToolResult(success=True, output=json.dumps(response_data, indent=2))
-            
+
         except Exception as e:
             logger.error(f"Error creating tasks: {e}")
             return ToolResult(success=False, output=f"❌ Error creating tasks: {str(e)}")
@@ -421,7 +532,7 @@ class TaskListTool(SandboxToolsBase):
                     },
                     "status": {
                         "type": "string",
-                        "enum": ["pending", "completed", "cancelled"],
+                        "enum": ["pending", "in_progress", "completed", "cancelled"],
                         "description": "New status. Use 'completed' when task is done."
                     },
                     "section_id": {
@@ -453,31 +564,41 @@ class TaskListTool(SandboxToolsBase):
             else:
                 return ToolResult(success=False, output="❌ Task IDs required")
             
-            sections, tasks = await self._load_data()
-            section_map = {s.id: s for s in sections}
-            task_map = {t.id: t for t in tasks}
-            
-            missing_tasks = [tid for tid in target_task_ids if tid not in task_map]
-            if missing_tasks:
-                return ToolResult(success=False, output=f"❌ Task IDs not found: {missing_tasks}")
-            
-            if section_id and section_id not in section_map:
-                return ToolResult(success=False, output=f"❌ Section ID '{section_id}' not found")
-            
-            for tid in target_task_ids:
-                task = task_map[tid]
-                if content is not None:
-                    task.content = content
+            async with self._lock:
+                sections, tasks = await self._load_data()
+                section_map = {s.id: s for s in sections}
+                task_map = {t.id: t for t in tasks}
+
+                if section_id and section_id not in section_map:
+                    return ToolResult(success=False, output=f"❌ Section ID '{section_id}' not found")
+
+                missing_tasks = [tid for tid in target_task_ids if tid not in task_map]
+                found_task_ids = [tid for tid in target_task_ids if tid in task_map]
+
                 if status is not None:
-                    task.status = TaskStatus(status)
-                if section_id is not None:
-                    task.section_id = section_id
-            
-            await self._save_data(sections, tasks)
-            response_data = self._format_response(sections, tasks)
-            
+                    status = TaskStatus(status)
+
+                for tid in found_task_ids:
+                    task = task_map[tid]
+                    if content is not None:
+                        task.content = content
+                    if status is not None:
+                        task.status = status
+                    if section_id is not None:
+                        task.section_id = section_id
+
+                sections, tasks = self._dedupe_sections(sections, tasks)
+                await self._save_data(sections, tasks)
+                response_data = self._format_response(sections, tasks)
+                if missing_tasks:
+                    response_data["message"] = (
+                        f"Skipped {len(missing_tasks)} missing task id"
+                        f"{'' if len(missing_tasks) == 1 else 's'} while updating the current list."
+                    )
+                    response_data["skipped_task_ids"] = missing_tasks
+
             return ToolResult(success=True, output=json.dumps(response_data, indent=2))
-            
+
         except Exception as e:
             logger.error(f"Error updating tasks: {e}")
             return ToolResult(success=False, output=f"❌ Error updating tasks: {str(e)}")
@@ -523,57 +644,59 @@ class TaskListTool(SandboxToolsBase):
             if section_ids and not confirm:
                 return ToolResult(success=False, output="❌ Set confirm=true to delete sections")
             
-            sections, tasks = await self._load_data()
-            section_map = {s.id: s for s in sections}
-            task_map = {t.id: t for t in tasks}
-            
-            remaining_tasks = tasks.copy()
-            remaining_sections = sections.copy()
-            
-            if task_ids:
-                if isinstance(task_ids, str):
-                    try:
-                        parsed = json.loads(task_ids)
-                        target_task_ids = parsed if isinstance(parsed, list) else [task_ids]
-                    except (json.JSONDecodeError, ValueError):
+            async with self._lock:
+                sections, tasks = await self._load_data()
+                section_map = {s.id: s for s in sections}
+                task_map = {t.id: t for t in tasks}
+                
+                remaining_tasks = tasks.copy()
+                remaining_sections = sections.copy()
+                
+                if task_ids:
+                    if isinstance(task_ids, str):
+                        try:
+                            parsed = json.loads(task_ids)
+                            target_task_ids = parsed if isinstance(parsed, list) else [task_ids]
+                        except (json.JSONDecodeError, ValueError):
+                            target_task_ids = [task_ids]
+                    elif isinstance(task_ids, list):
+                        target_task_ids = task_ids
+                    else:
                         target_task_ids = [task_ids]
-                elif isinstance(task_ids, list):
-                    target_task_ids = task_ids
-                else:
-                    target_task_ids = [task_ids]
-                
-                missing = [tid for tid in target_task_ids if tid not in task_map]
-                if missing:
-                    return ToolResult(success=False, output=f"❌ Task IDs not found: {missing}")
-                
-                task_id_set = set(target_task_ids)
-                remaining_tasks = [t for t in tasks if t.id not in task_id_set]
-            
-            if section_ids:
-                if isinstance(section_ids, str):
-                    try:
-                        parsed = json.loads(section_ids)
-                        target_section_ids = parsed if isinstance(parsed, list) else [section_ids]
-                    except (json.JSONDecodeError, ValueError):
+
+                    missing = [tid for tid in target_task_ids if tid not in task_map]
+                    if missing:
+                        return ToolResult(success=False, output=f"❌ Task IDs not found: {missing}")
+
+                    task_id_set = set(target_task_ids)
+                    remaining_tasks = [t for t in tasks if t.id not in task_id_set]
+
+                if section_ids:
+                    if isinstance(section_ids, str):
+                        try:
+                            parsed = json.loads(section_ids)
+                            target_section_ids = parsed if isinstance(parsed, list) else [section_ids]
+                        except (json.JSONDecodeError, ValueError):
+                            target_section_ids = [section_ids]
+                    elif isinstance(section_ids, list):
+                        target_section_ids = section_ids
+                    else:
                         target_section_ids = [section_ids]
-                elif isinstance(section_ids, list):
-                    target_section_ids = section_ids
-                else:
-                    target_section_ids = [section_ids]
-                
-                missing = [sid for sid in target_section_ids if sid not in section_map]
-                if missing:
-                    return ToolResult(success=False, output=f"❌ Section IDs not found: {missing}")
-                
-                section_id_set = set(target_section_ids)
-                remaining_sections = [s for s in sections if s.id not in section_id_set]
-                remaining_tasks = [t for t in remaining_tasks if t.section_id not in section_id_set]
-            
-            await self._save_data(remaining_sections, remaining_tasks)
-            response_data = self._format_response(remaining_sections, remaining_tasks)
-            
+
+                    missing = [sid for sid in target_section_ids if sid not in section_map]
+                    if missing:
+                        return ToolResult(success=False, output=f"❌ Section IDs not found: {missing}")
+
+                    section_id_set = set(target_section_ids)
+                    remaining_sections = [s for s in sections if s.id not in section_id_set]
+                    remaining_tasks = [t for t in remaining_tasks if t.section_id not in section_id_set]
+
+                remaining_sections, remaining_tasks = self._dedupe_sections(remaining_sections, remaining_tasks)
+                await self._save_data(remaining_sections, remaining_tasks)
+                response_data = self._format_response(remaining_sections, remaining_tasks)
+
             return ToolResult(success=True, output=json.dumps(response_data, indent=2))
-            
+
         except Exception as e:
             logger.error(f"Error deleting: {e}")
             return ToolResult(success=False, output=f"❌ Error deleting: {str(e)}")
@@ -602,15 +725,18 @@ class TaskListTool(SandboxToolsBase):
             if not confirm:
                 return ToolResult(success=False, output="❌ Set confirm=true to clear")
             
-            await self._save_data([], [])
-            return ToolResult(success=True, output=json.dumps({
-                "sections": [],
-                "total_tasks": 0,
-                "completed_tasks": 0,
-                "pending_tasks": 0,
-                "progress_percent": 0,
-                "total_sections": 0
-            }, indent=2))
+            async with self._lock:
+                await self._save_data([], [])
+                return ToolResult(success=True, output=json.dumps({
+                    "sections": [],
+                    "total_tasks": 0,
+                    "completed_tasks": 0,
+                    "in_progress_tasks": 0,
+                    "pending_tasks": 0,
+                    "cancelled_tasks": 0,
+                    "progress_percent": 0,
+                    "total_sections": 0
+                }, indent=2))
             
         except Exception as e:
             logger.error(f"Error clearing: {e}")

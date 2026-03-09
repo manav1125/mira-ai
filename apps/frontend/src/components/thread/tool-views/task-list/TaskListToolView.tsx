@@ -1,5 +1,5 @@
 import type React from "react"
-import { Check, ListTodo, X, Circle, CircleCheck } from "lucide-react"
+import { Check, Circle, CircleCheck, CircleDashed, ListTodo, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { KortixLoader } from "@/components/ui/kortix-loader"
 import { extractTaskListData, type Task, type Section } from "./_utils"
@@ -14,7 +14,8 @@ import { ToolViewFooter } from "../shared/ToolViewFooter"
 const TaskItem: React.FC<{ task: Task; index: number }> = ({ task, index }) => {
   const isCompleted = task.status === "completed"
   const isCancelled = task.status === "cancelled"
-  const isPending = !isCompleted && !isCancelled
+  const isInProgress = task.status === "in_progress"
+  const isPending = !isCompleted && !isCancelled && !isInProgress
 
   return (
     <div className="flex items-center gap-3 py-3 px-4 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/50 transition-colors border-b border-zinc-100 dark:border-zinc-800 last:border-b-0">
@@ -22,6 +23,7 @@ const TaskItem: React.FC<{ task: Task; index: number }> = ({ task, index }) => {
       <div className="flex-shrink-0">
         {isCompleted && <CircleCheck className="h-4 w-4 text-zinc-700 dark:text-zinc-300" />}
         {isCancelled && <X className="h-4 w-4 text-zinc-500 dark:text-zinc-400" />}
+        {isInProgress && <CircleDashed className="h-4 w-4 text-zinc-700 dark:text-zinc-300" />}
         {isPending && <Circle className="h-4 w-4 text-zinc-400 dark:text-zinc-600" />}
       </div>
 
@@ -32,6 +34,7 @@ const TaskItem: React.FC<{ task: Task; index: number }> = ({ task, index }) => {
             "text-sm leading-relaxed",
             isCompleted && "text-zinc-900 dark:text-zinc-100",
             isCancelled && "text-zinc-500 dark:text-zinc-400 line-through",
+            isInProgress && "text-zinc-900 dark:text-zinc-100 font-medium",
             isPending && "text-zinc-600 dark:text-zinc-300",
           )}
         >
@@ -45,6 +48,7 @@ const TaskItem: React.FC<{ task: Task; index: number }> = ({ task, index }) => {
 const SectionHeader: React.FC<{ section: Section }> = ({ section }) => {
   const totalTasks = section.tasks.length
   const completedTasks = section.tasks.filter((t) => t.status === "completed").length
+  const inProgressTasks = section.tasks.filter((t) => t.status === "in_progress").length
 
   return (
     <div className="flex items-center justify-between py-3 px-4 bg-zinc-50/80 dark:bg-zinc-900/80 border-b border-zinc-200 dark:border-zinc-700">
@@ -53,6 +57,11 @@ const SectionHeader: React.FC<{ section: Section }> = ({ section }) => {
         <Badge variant="outline" className="text-xs h-5 px-2 py-0 font-normal bg-white dark:bg-zinc-800">
           {completedTasks}/{totalTasks}
         </Badge>
+        {inProgressTasks > 0 && (
+          <Badge variant="outline" className="text-xs h-5 px-2 py-0 font-normal bg-white dark:bg-zinc-800">
+            {inProgressTasks} active
+          </Badge>
+        )}
         {completedTasks === totalTasks && totalTasks > 0 && (
           <Badge variant="outline" className="text-xs h-5 px-2 py-0 bg-zinc-100 text-zinc-700 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700">
             <Check className="h-3 w-3" />

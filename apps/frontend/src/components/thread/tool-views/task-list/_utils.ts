@@ -1,7 +1,7 @@
 export interface Task {
   id: string
   content: string
-  status: "pending" | "completed" | "cancelled"
+  status: "pending" | "in_progress" | "completed" | "cancelled"
   section_id: string
 }
 
