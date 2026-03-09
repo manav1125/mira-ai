@@ -1060,6 +1060,97 @@ class SandboxPresentationTool(SandboxToolsBase):
             cards.append({"display": display, "label": label})
         return cards
 
+    def _build_slide_scene_direction(
+        self,
+        title: str,
+        layout_variant: str,
+        subject_hint: str,
+        key_points: List[str],
+        metrics: List[str],
+    ) -> str:
+        title_lower = title.lower()
+        keyword_map = {
+            "cover": (
+                "Create a premium hero scene centered on the subject with a strong focal object or environment. "
+                "Do not generate letters, initials, monograms, or faux logos."
+            ),
+            "about": (
+                "Show the real-world context of the company or subject: founders, workspace, city context, ecosystem, or product environment. "
+                "Avoid generic stock boardroom compositions unless the slide is explicitly about meetings."
+            ),
+            "team": (
+                "Show an editorial team or leadership scene with confident people, strong human presence, and a modern working environment."
+            ),
+            "mission": (
+                "Show an aspirational mission-driven scene with founders, community, ambition, and momentum. Emphasize people and purpose."
+            ),
+            "values": (
+                "Show community, mentorship, collaboration, and value creation in action rather than abstract shapes."
+            ),
+            "service": (
+                "Show the product or service world through concrete entrepreneurial scenes, venture tooling, workshops, founder support, or platform usage."
+            ),
+            "solution": (
+                "Show the proposed solution as a concrete scene: founders using AI tools, mentorship, venture execution, or startup-building moments."
+            ),
+            "product": (
+                "Show the product or platform in context with people using it. Avoid unreadable UI screenshots; instead use cinematic interface-glow cues around real usage."
+            ),
+            "market": (
+                "Show market scale and network effects through a global venture ecosystem scene, maps, flows, city clusters, investors, and startup activity."
+            ),
+            "financial": (
+                "Show financial performance through premium data sculpture, capital flows, charts made physical, or an investor context scene. Avoid plain office meetings."
+            ),
+            "traction": (
+                "Show growth and traction through momentum, product adoption, investor interest, founder activity, and data-informed movement."
+            ),
+            "roadmap": (
+                "Show a literal forward path, phased journey, milestones, or launch sequence with clear progression."
+            ),
+            "timeline": (
+                "Show a literal forward path, phased journey, milestones, or launch sequence with clear progression."
+            ),
+            "closing": (
+                "Show an aspirational closing moment with confidence, forward motion, and a clear next-step energy."
+            ),
+        }
+
+        if layout_variant == "cover":
+            return keyword_map["cover"]
+        if layout_variant == "timeline":
+            return keyword_map["timeline"]
+        if layout_variant == "closing":
+            return keyword_map["closing"]
+        if layout_variant == "metrics":
+            return keyword_map["financial"]
+
+        title_keyword_groups = [
+            (("about", "overview", "who we are", "company"), "about"),
+            (("team", "leadership", "founder"), "team"),
+            (("mission", "vision"), "mission"),
+            (("values", "community"), "values"),
+            (("service", "offered", "platform", "product"), "service"),
+            (("solution", "approach"), "solution"),
+            (("market", "opportunity", "position"), "market"),
+            (("financial", "revenue", "economics", "business model", "ask"), "financial"),
+            (("traction", "growth", "adoption"), "traction"),
+            (("roadmap", "timeline", "milestone"), "roadmap"),
+        ]
+        for keywords, scene_key in title_keyword_groups:
+            if any(keyword in title_lower for keyword in keywords):
+                return keyword_map[scene_key]
+
+        if metrics:
+            return keyword_map["financial"]
+        if any("founder" in point.lower() or "community" in point.lower() for point in key_points):
+            return keyword_map["mission"]
+
+        return (
+            f"Show a subject-specific editorial scene about {subject_hint} with real-world context, people or environment, "
+            "and a distinct focal subject. Avoid generic office fillers and abstract placeholder visuals."
+        )
+
     def _build_slide_visual_prompt(
         self,
         semantics: Dict[str, object],
@@ -1073,6 +1164,13 @@ class SandboxPresentationTool(SandboxToolsBase):
         visual_brief = str(semantics.get("visual_brief") or "").strip()
         palette = theme_context.get("palette", {})
         subject_hint = self._extract_subject_hint(str(theme_context.get("deck_title") or ""), title)
+        scene_direction = self._build_slide_scene_direction(
+            title=title,
+            layout_variant=layout_variant,
+            subject_hint=subject_hint,
+            key_points=key_points,
+            metrics=metrics,
+        )
 
         title_lower = title.lower()
         if layout_variant == "timeline":
@@ -1116,13 +1214,14 @@ class SandboxPresentationTool(SandboxToolsBase):
 
         return (
             f"Create a premium 16:9 keynote slide visual for '{title}' in a deck about {subject_hint}. "
-            f"{visual_direction}. "
+            f"{visual_direction}. {scene_direction} "
             + (" ".join(context_bits) + " " if context_bits else "")
             + "Use a sophisticated palette inspired by "
             + f"{palette.get('background', '#0f172a')}, {palette.get('accent', '#38bdf8')}, and {palette.get('accent_secondary', '#8b5cf6')}. "
             + "The image must feel polished, strategic, subject-specific, and presentation-ready. "
             + "No readable text, no letters, no UI screenshots, no memes, no watermarks, no collage. "
-            + "Avoid blank dark panels, empty abstract gradients, or low-detail filler imagery. "
+            + "Avoid blank dark panels, empty abstract gradients, low-detail filler imagery, repeated boardroom scenes, and repeated visual motifs across slides. "
+            + "Vary the setting, composition, and focal subject so this slide looks distinct from the rest of the deck while staying visually cohesive. "
             + "Use one strong focal scene with depth, lighting, and enough visual detail to carry an investor-grade slide."
         )
 
