@@ -85,7 +85,7 @@ export default function AboutPage() {
         <section className="mt-14 overflow-hidden rounded-3xl border border-border/70 bg-card/30">
           <div className="relative aspect-[16/8] w-full">
             <Image
-              src="/banner.png"
+              src="/ventureverse-about-banner.svg"
               alt="VentureVerse product banner"
               fill
               className="object-cover"
