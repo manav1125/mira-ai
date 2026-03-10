@@ -432,8 +432,9 @@ async def start_agent_run(
         if sandbox_id:
             logger.info(f"✅ [AGENT_START] Resolved sandbox {sandbox_id} for file uploads (project {project_id})")
             # Upload files immediately
-            from core.files.upload_handler import upload_files_to_sandbox
-            await upload_files_to_sandbox(project_id, thread_id, files_data, account_id)
+            from core.files.upload_handler import rewrite_attached_file_refs, upload_files_to_sandbox
+            uploaded_files = await upload_files_to_sandbox(project_id, thread_id, files_data, account_id)
+            final_prompt = rewrite_attached_file_refs(final_prompt, uploaded_files)
             logger.info(f"✅ [AGENT_START] Uploaded {len(files_data)} files to sandbox {sandbox_id}")
         else:
             logger.warning(f"⚠️ [AGENT_START] Failed to resolve sandbox for file uploads (project {project_id})")
@@ -606,8 +607,9 @@ async def _background_setup_and_execute(
         cache_prep_task = None
         cache_updated = False
         
-        # Note: Project and sandbox are now created upfront in start_agent_run()
-        # Files are uploaded directly to sandbox by frontend after receiving sandbox_id
+        # Note: Project and sandbox are now created upfront in start_agent_run().
+        # Attached files are uploaded before this background task starts so the
+        # agent sees the final sandbox paths in the initial prompt.
         
         if is_new_thread:
             # Cache warmup is a UX optimization; it must never block thread persistence.

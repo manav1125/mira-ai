@@ -77,9 +77,9 @@ async def upload_files_to_sandbox(
     thread_id: str,
     files_data: List[Tuple[str, bytes, str, Optional[str]]],
     account_id: Optional[str] = None,
-):
+) -> List[Dict[str, str]]:
     if not files_data:
-        return
+        return []
     
     logger.info(f"[UPLOAD] Uploading files for project {project_id} ({len(files_data)} files)")
     
@@ -105,23 +105,70 @@ async def upload_files_to_sandbox(
         logger.info(f"[UPLOAD] Sandbox {sandbox_info.sandbox_id} ready, uploading {len(files_data)} files...")
         uploads_dir = get_uploads_directory()
         uploaded_count = 0
+        uploaded_files: List[Dict[str, str]] = []
         
         for filename, content_bytes, mime_type, _ in files_data:
             try:
                 unique_filename = await generate_unique_filename(sandbox_info.sandbox, uploads_dir, filename)
                 target_path = f"{uploads_dir}/{unique_filename}"
+                reference_path = target_path.replace("/workspace/", "", 1) if target_path.startswith("/workspace/") else target_path.lstrip("/")
                 
                 if hasattr(sandbox_info.sandbox, 'fs') and hasattr(sandbox_info.sandbox.fs, 'upload_file'):
                     await sandbox_info.sandbox.fs.upload_file(content_bytes, target_path)
                     uploaded_count += 1
+                    uploaded_files.append({
+                        "original_filename": filename,
+                        "uploaded_filename": unique_filename,
+                        "uploaded_path": target_path,
+                        "reference_path": reference_path,
+                    })
                     logger.debug(f"[UPLOAD] Complete: {filename} -> {target_path}")
             except Exception as e:
                 logger.warning(f"[UPLOAD] Failed for {filename}: {str(e)}")
         
         logger.info(f"[UPLOAD] Complete: {uploaded_count}/{len(files_data)} files to sandbox {sandbox_info.sandbox_id}")
+        return uploaded_files
                 
     except Exception as e:
         logger.warning(f"[UPLOAD] Error for project {project_id}: {str(e)}")
+        return []
+
+
+def rewrite_attached_file_refs(
+    prompt: str,
+    uploaded_files: List[Dict[str, str]],
+) -> str:
+    if not prompt or not uploaded_files:
+        return prompt
+
+    updated_prompt = prompt
+    rename_notes: List[str] = []
+
+    for uploaded_file in uploaded_files:
+        original_filename = uploaded_file.get("original_filename")
+        reference_path = uploaded_file.get("reference_path")
+        if not original_filename or not reference_path:
+            continue
+
+        original_reference = f"uploads/{original_filename}"
+        updated_prompt = updated_prompt.replace(
+            f"-> {original_reference}]",
+            f"-> {reference_path}]",
+        )
+
+        if reference_path != original_reference:
+            rename_notes.append(
+                f"- Attached file '{original_filename}' is stored at '{reference_path}'. Use that exact path when reading the file."
+            )
+
+    if rename_notes:
+        note_block = "\n".join(rename_notes)
+        if note_block not in updated_prompt:
+            updated_prompt = (
+                f"{updated_prompt}\n\n[Attached file path notes]\n{note_block}"
+            )
+
+    return updated_prompt
 
 
 async def get_cached_file_context(thread_id: str) -> Optional[List[Dict[str, Any]]]:
@@ -183,7 +230,8 @@ async def handle_file_uploads_fast(
                 logger.warning(f"Failed to cache parsed files: {cache_error}")
         
         if project_id:
-            await upload_files_to_sandbox(project_id, tid, files_data, account_id)
+            uploaded_files = await upload_files_to_sandbox(project_id, tid, files_data, account_id)
+            message_content = rewrite_attached_file_refs(message_content, uploaded_files)
     
     return message_content
 
