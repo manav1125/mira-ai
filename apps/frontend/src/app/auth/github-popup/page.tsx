@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { KortixLoader } from '@/components/ui/kortix-loader';
+import { getPublicAppOrigin } from '@/lib/utils/public-app-origin';
 
 interface AuthMessage {
   type: 'github-auth-success' | 'github-auth-error';
@@ -124,7 +125,7 @@ export default function GitHubOAuthPopup() {
           const { error } = await supabase.auth.signInWithOAuth({
             provider: 'github',
             options: {
-              redirectTo: `${window.location.origin}/auth/github-popup`,
+              redirectTo: `${getPublicAppOrigin()}/auth/github-popup`,
               queryParams: {
                 access_type: 'online',
                 prompt: 'select_account',

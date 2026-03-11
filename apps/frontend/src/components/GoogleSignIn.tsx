@@ -7,6 +7,7 @@ import { Icons } from './home/icons';
 import { KortixLoader } from '@/components/ui/kortix-loader';
 import { Button } from '@/components/ui/button';
 import { useTranslations } from 'next-intl';
+import { getPublicAppOrigin } from '@/lib/utils/public-app-origin';
 
 interface GoogleSignInProps {
   returnUrl?: string;
@@ -29,7 +30,7 @@ export default function GoogleSignIn({ returnUrl, referralCode }: GoogleSignInPr
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback${returnUrl ? `?returnUrl=${encodeURIComponent(returnUrl)}` : ''
+          redirectTo: `${getPublicAppOrigin()}/auth/callback${returnUrl ? `?returnUrl=${encodeURIComponent(returnUrl)}` : ''
             }`,
         },
       });

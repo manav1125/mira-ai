@@ -9,6 +9,7 @@ import { useAuthMethodTracking } from '@/stores/auth-tracking';
 import { KortixLoader } from '@/components/ui/kortix-loader';
 import { Button } from '@/components/ui/button';
 import { useTranslations } from 'next-intl';
+import { getPublicAppOrigin } from '@/lib/utils/public-app-origin';
 
 interface GitHubSignInProps {
   returnUrl?: string;
@@ -110,7 +111,7 @@ export default function GitHubSignIn({ returnUrl, referralCode }: GitHubSignInPr
       }
 
       const popup = window.open(
-        `${window.location.origin}/auth/github-popup`,
+        `${getPublicAppOrigin()}/auth/github-popup`,
         'GitHubOAuth',
         'width=500,height=600,scrollbars=yes,resizable=yes,status=yes,location=yes',
       );
