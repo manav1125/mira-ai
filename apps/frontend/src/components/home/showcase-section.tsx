@@ -6,7 +6,6 @@ import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/utils';
-import { isMobileDevice } from '@/lib/utils/is-mobile-device';
 import { GrainText } from '@/components/ui/grain-text';
 import { GrainIcon } from '@/components/ui/grain-icon';
 import { Card } from '@/components/ui/card';
@@ -111,20 +110,11 @@ const workerConfigs = [
 ];
 
 export function ShowCaseSection() {
-    const t = useTranslations('showcase');
-    const [activeWorker, setActiveWorker] = useState<string>(workerConfigs[0].id);
-    const [isMobileDeviceDetected, setIsMobileDeviceDetected] = useState(false);
-    const isMobile = useIsMobile();
-    const { visibleCards, refs } = useScrollReveal();
-
-    // Detect if user is on an actual mobile device (iOS/Android)
-    // Mobile users clicking CTA will be redirected to /app which then redirects to app stores
-    useEffect(() => {
-        setIsMobileDeviceDetected(isMobileDevice());
-    }, []);
-
-    // Get the appropriate CTA link based on device type
-    const ctaLink = isMobileDeviceDetected ? '/app' : '/auth';
+  const t = useTranslations('showcase');
+  const [activeWorker, setActiveWorker] = useState<string>(workerConfigs[0].id);
+  const isMobile = useIsMobile();
+  const { visibleCards, refs } = useScrollReveal();
+  const ctaLink = '/auth';
 
     const workers: WorkerType[] = workerConfigs.map((config) => ({
         ...config,

@@ -12,7 +12,6 @@ import { useRouter, usePathname } from 'next/navigation';
 import { KortixLogo } from '@/components/sidebar/kortix-logo';
 import { useTranslations } from 'next-intl';
 import { trackCtaSignup } from '@/lib/analytics/gtm';
-import { isMobileDevice } from '@/lib/utils/is-mobile-device';
 
 // Scroll threshold with hysteresis to prevent flickering
 const SCROLL_THRESHOLD_DOWN = 50;
@@ -70,7 +69,6 @@ export function Navbar({ isAbsolute = false }: NavbarProps) {
   const [hasScrolled, setHasScrolled] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [activeSection, setActiveSection] = useState('hero');
-  const [isMobile, setIsMobile] = useState(false);
   const { user } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
@@ -78,14 +76,7 @@ export function Navbar({ isAbsolute = false }: NavbarProps) {
   const lastScrollY = useRef(0);
 
   const filteredNavLinks = siteConfig.nav.links;
-
-  // Detect if user is on an actual mobile device (iOS/Android)
-  useEffect(() => {
-    setIsMobile(isMobileDevice());
-  }, []);
-
-  // Mobile users are sent to the app landing page, desktop users go straight to auth.
-  const ctaLink = isMobile ? '/app' : '/auth';
+  const ctaLink = '/auth';
 
   // Single unified scroll handler with hysteresis
   const handleScroll = useCallback(() => {
