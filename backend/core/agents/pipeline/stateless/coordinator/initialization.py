@@ -121,6 +121,7 @@ class ManagerInitializer:
             agent_config=ctx.agent_config,
             thread_id=ctx.thread_id,
             account_id=ctx.account_id,
+            mode=ctx.mode,
             tool_registry=tool_registry,
             mcp_loader=getattr(thread_manager, 'mcp_loader', None),
             client=await thread_manager.db.client if thread_manager else None,

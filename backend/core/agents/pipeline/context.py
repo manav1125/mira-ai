@@ -10,6 +10,7 @@ class PipelineContext:
     project_id: str
     account_id: str
     model_name: str
+    mode: Optional[str] = None
     agent_config: Optional[Dict[str, Any]] = None
     is_new_thread: bool = False
     skip_limits_check: bool = False

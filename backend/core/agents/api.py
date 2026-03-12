@@ -707,7 +707,8 @@ async def _background_setup_and_execute(
                     account_id=account_id,
                     cancellation_event=cancellation_event,
                     is_new_thread=is_new_thread,
-                    user_message=final_message_content
+                    user_message=final_message_content,
+                    mode=mode,
                 ),
                 timeout=run_timeout_seconds,
             )

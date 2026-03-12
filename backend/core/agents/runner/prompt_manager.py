@@ -13,6 +13,7 @@ class PromptManager:
     @staticmethod
     async def build_system_prompt(model_name: str, agent_config: Optional[dict],
                                   thread_id: str,
+                                  mode: Optional[str],
                                   mcp_wrapper_instance: Optional[MCPToolWrapper],
                                   client=None,
                                   tool_registry=None,
@@ -36,6 +37,7 @@ class PromptManager:
         t1 = time.time()
         system_content = PromptManager._build_base_prompt(system_content, disabled_tools)
         logger.debug(f"⏱️ [PROMPT TIMING] _build_base_prompt: {(time.time() - t1) * 1000:.1f}ms")
+        system_content = PromptManager._append_mode_specific_guidance(system_content, mode)
         
         # Start parallel fetch tasks
         kb_task = PromptManager._with_timeout(PromptManager._fetch_knowledge_base(agent_config, client), 2.0, "KB fetch")
@@ -178,6 +180,34 @@ class PromptManager:
     def _append_agent_system_prompt(system_content: str, agent_config: Optional[dict]) -> str:
         if agent_config and agent_config.get('system_prompt'):
             return agent_config['system_prompt'].strip()
+        return system_content
+
+    @staticmethod
+    def _append_mode_specific_guidance(system_content: str, mode: Optional[str]) -> str:
+        if mode == "docs":
+            return system_content + """
+
+# DOCS MODE OUTPUT STANDARD
+- The user is asking for a document deliverable. Default to producing a full-length, polished document, not a short memo or outline.
+- Match the output length to the user's requested scope. If they ask for a comprehensive, detailed, in-depth, or 20-page document, keep expanding until the document meaningfully covers that scope.
+- Write substantial section bodies with real detail, examples, rationale, and concrete recommendations where appropriate.
+- Do not stop at an executive summary unless the user explicitly asks for a summary.
+- If you create a file, write the full document content into the file rather than a short synopsis.
+- Prefer one complete, well-structured document over a brief summary that leaves major sections underdeveloped.
+"""
+
+        if mode == "research":
+            return system_content + """
+
+# RESEARCH MODE OUTPUT STANDARD
+- The user is asking for a research deliverable. Perform broad research first, then synthesize it into a substantial report rather than a short summary.
+- Match the output length to the user's requested scope. If they ask for a comprehensive, detailed, deep-dive, or long-form report, continue until the report meaningfully covers that scope.
+- Include source-backed findings, comparisons, analysis, implications, and recommendations where relevant.
+- Do not stop at a high-level synopsis or executive summary unless the user explicitly asks for that format.
+- If you create a file, write the full research report into the file rather than a compressed recap.
+- Prefer one thorough research report over a brief overview that omits important evidence or analysis.
+"""
+
         return system_content
     
     @staticmethod

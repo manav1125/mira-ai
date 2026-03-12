@@ -34,7 +34,8 @@ async def execute_agent_run(
     account_id: str,
     cancellation_event: asyncio.Event,
     is_new_thread: bool = False,
-    user_message: Optional[str] = None
+    user_message: Optional[str] = None,
+    mode: Optional[str] = None,
 ) -> None:
     execution_start = time.time()
 
@@ -99,6 +100,7 @@ async def execute_agent_run(
             project_id=project_id,
             account_id=account_id,
             model_name=effective_model,
+            mode=mode,
             agent_config=agent_config,
             is_new_thread=is_new_thread,
             cancellation_event=cancellation_event,
