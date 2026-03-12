@@ -141,7 +141,7 @@ export const modeConfigs: ModeConfig[] = [
 ];
 
 interface NewThreadEmptyStateProps {
-  onSubmit: (prompt: string) => void;
+  onSubmit: (prompt: string, options?: { mode?: string }) => void;
   className?: string;
   sandboxId?: string | null;
   project?: {
@@ -464,7 +464,7 @@ export function NewThreadEmptyState({ onSubmit, className }: NewThreadEmptyState
   };
 
   const handleSubmitPrompt = (prompt: string) => {
-    onSubmit(prompt);
+    onSubmit(prompt, { mode: selectedMode?.id });
   };
 
   // ============================================================================

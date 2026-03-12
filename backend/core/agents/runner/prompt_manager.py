@@ -190,7 +190,9 @@ class PromptManager:
 # DOCS MODE OUTPUT STANDARD
 - The user is asking for a document deliverable. Default to producing a full-length, polished document, not a short memo or outline.
 - Match the output length to the user's requested scope. If they ask for a comprehensive, detailed, in-depth, or 20-page document, keep expanding until the document meaningfully covers that scope.
+- Start by forming a strong outline, then write full section bodies with enough depth that the document stands on its own.
 - Write substantial section bodies with real detail, examples, rationale, and concrete recommendations where appropriate.
+- Prefer complete prose over sparse bullets unless bullets are clearly the better format for the requested section.
 - Do not stop at an executive summary unless the user explicitly asks for a summary.
 - If you create a file, write the full document content into the file rather than a short synopsis.
 - Prefer one complete, well-structured document over a brief summary that leaves major sections underdeveloped.
@@ -201,8 +203,11 @@ class PromptManager:
 
 # RESEARCH MODE OUTPUT STANDARD
 - The user is asking for a research deliverable. Perform broad research first, then synthesize it into a substantial report rather than a short summary.
+- Use multiple targeted searches and open the most relevant primary or authoritative sources before writing the report.
+- If the topic involves current news or announcements, explain what the important articles or announcements actually said and analyze the implications instead of falling back to generic market commentary.
 - Match the output length to the user's requested scope. If they ask for a comprehensive, detailed, deep-dive, or long-form report, continue until the report meaningfully covers that scope.
-- Include source-backed findings, comparisons, analysis, implications, and recommendations where relevant.
+- Include a clear methodology, source-backed findings, comparisons, analysis, implications, and recommendations where relevant.
+- Use evidence from the sources inside the body of the report; do not just list links and then summarize at a high level.
 - Do not stop at a high-level synopsis or executive summary unless the user explicitly asks for that format.
 - If you create a file, write the full research report into the file rather than a compressed recap.
 - Prefer one thorough research report over a brief overview that omits important evidence or analysis.

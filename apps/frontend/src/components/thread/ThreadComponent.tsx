@@ -76,6 +76,7 @@ import { useClearNavigation } from '@/stores/thread-navigation-store';
 import { useModeViewerInit } from '@/hooks/threads/use-mode-viewer-init';
 import { getStreamPreconnectService } from '@/lib/streaming/stream-preconnect';
 import { useVoicePlayerStore } from '@/stores/voice-player-store';
+import { useSunaModesStore } from '@/stores/suna-modes-store';
 
 interface ThreadComponentProps {
   projectId: string;
@@ -230,6 +231,8 @@ export function ThreadComponent({ projectId, threadId, compact = false, configur
   );
   const [optimisticFilesUploading, setOptimisticFilesUploading] = useState(false);
   const optimisticFilesUploadedRef = useRef(false);
+  const selectedMode = useSunaModesStore((state) => state.selectedMode);
+  const setSelectedMode = useSunaModesStore((state) => state.setSelectedMode);
   
   const {
     messages,
@@ -1245,7 +1248,7 @@ export function ThreadComponent({ projectId, threadId, compact = false, configur
   const handleSubmitMessage = useCallback(
     async (
       message: string,
-      options?: { model_name?: string },
+      options?: { model_name?: string; mode?: string },
     ) => {
       if (!message.trim() || isShared || !startAgentMutation) return;
 
@@ -1271,12 +1274,19 @@ export function ThreadComponent({ projectId, threadId, compact = false, configur
       const uploadedFiles = chatInputRef.current?.getUploadedFiles() || [];
 
       try {
+        const effectiveMode =
+          options?.mode ||
+          selectedMode ||
+          (modeStarter === 'presentation' ? 'slides' : modeStarter) ||
+          undefined;
+
         const result = await startAgentMutation.mutateAsync({
           threadId,
           prompt: message,
           options: {
             ...options,
             agent_id: selectedAgentId,
+            mode: effectiveMode,
             files: pendingFiles.length > 0 ? pendingFiles : undefined,
           },
         });
@@ -1340,6 +1350,7 @@ export function ThreadComponent({ projectId, threadId, compact = false, configur
       setAgentRunId,
       isShared,
       selectedAgentId,
+      selectedMode,
       agentStatus,
       queueMessage,
       queuedMessages,
@@ -2024,6 +2035,8 @@ export function ThreadComponent({ projectId, threadId, compact = false, configur
                 defaultShowSnackbar="tokens"
                 showScrollToBottomIndicator={showScrollToBottom}
                 onScrollToBottom={scrollToBottom}
+                selectedMode={selectedMode || (modeStarter === 'presentation' ? 'slides' : modeStarter)}
+                onModeDeselect={() => setSelectedMode(null)}
                 threadId={threadId}
               />
             </div>
@@ -2096,6 +2109,8 @@ export function ThreadComponent({ projectId, threadId, compact = false, configur
         showScrollToBottomIndicator={showScrollToBottom}
         onScrollToBottom={scrollToBottom}
         bgColor="bg-card"
+        selectedMode={selectedMode || (modeStarter === 'presentation' ? 'slides' : modeStarter)}
+        onModeDeselect={() => setSelectedMode(null)}
       />
     </div>
   ) : undefined;

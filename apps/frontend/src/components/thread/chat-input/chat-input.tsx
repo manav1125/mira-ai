@@ -739,6 +739,7 @@ export interface ChatInputProps {
     options?: {
       model_name?: string;
       agent_id?: string;
+      mode?: string;
     },
   ) => void;
   placeholder?: string;
@@ -881,6 +882,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandles, ChatInputProps>(
     const selectedCharts = useSunaModesStore((state) => state.selectedCharts);
     const selectedOutputFormat = useSunaModesStore((state) => state.selectedOutputFormat);
     const selectedTemplate = useSunaModesStore((state) => state.selectedTemplate);
+    const selectedDocsType = useSunaModesStore((state) => state.selectedDocsType);
 
     // Voice player state for snack visibility
     const voiceState = useVoicePlayerStore((s) => s.state);
@@ -1197,6 +1199,52 @@ export const ChatInput = memo(forwardRef<ChatInputHandles, ChatInputProps>(
       ].join('\n');
     }, [selectedMode, selectedTemplate]);
 
+    const generateDocsWorkflowMarkdown = useCallback(() => {
+      if (selectedMode !== 'docs') {
+        return '';
+      }
+
+      const selectedTypeLine = selectedDocsType
+        ? `- Selected document type: ${selectedDocsType}`
+        : '- Match the structure to the user request even if a type is not explicitly selected';
+
+      return [
+        '',
+        '',
+        '----',
+        '',
+        '**Document Output Standard (Required):**',
+        '- Treat this as a long-form document deliverable, not a chat reply or short summary',
+        selectedTypeLine,
+        '- Start with a clear outline that matches the requested scope, then write the full document with substantial section bodies',
+        '- Expand each section with real detail, rationale, examples, and concrete recommendations where appropriate',
+        '- If the user asks for a comprehensive, detailed, in-depth, or multi-page document, keep writing until the document meaningfully covers that scope',
+        '- Do not stop at an executive summary or bullet outline unless the user explicitly asks for that format',
+        '- If you create a file, write the complete document into the file rather than a synopsis',
+      ].join('\n');
+    }, [selectedDocsType, selectedMode]);
+
+    const generateResearchWorkflowMarkdown = useCallback(() => {
+      if (selectedMode !== 'research') {
+        return '';
+      }
+
+      return [
+        '',
+        '',
+        '----',
+        '',
+        '**Research Output Standard (Required):**',
+        '- Perform multiple targeted web searches before drafting the report',
+        '- Open and read the most relevant primary or authoritative sources; do not rely only on search snippets',
+        '- If the request is about recent news, explain what the important articles or announcements actually said and analyze the implications instead of giving generic commentary',
+        '- Synthesize findings into a substantial report with methodology, key findings, source-backed evidence, comparison, analysis, and recommendations where relevant',
+        '- Match the output length to the user request; if they ask for a deep dive or long-form report, continue until it meaningfully covers that scope',
+        '- Do not stop at a short synopsis or executive summary unless the user explicitly asks for that',
+        '- If you create a file, write the full report into the file rather than a compressed recap',
+      ].join('\n');
+    }, [selectedMode]);
+
     // Handle mode deselection with animation - also clears the input value
     const handleModeDeselect = useCallback(() => {
       setIsModeDismissing(true);
@@ -1274,6 +1322,16 @@ export const ChatInput = memo(forwardRef<ChatInputHandles, ChatInputProps>(
         message = message + slidesTemplateMarkdown;
       }
 
+      const docsWorkflowMarkdown = generateDocsWorkflowMarkdown();
+      if (docsWorkflowMarkdown) {
+        message = message + docsWorkflowMarkdown;
+      }
+
+      const researchWorkflowMarkdown = generateResearchWorkflowMarkdown();
+      if (researchWorkflowMarkdown) {
+        message = message + researchWorkflowMarkdown;
+      }
+
       const baseModelName = selectedModel ? getActualModelId(selectedModel) : undefined;
 
       posthog.capture("task_prompt_submitted", { message });
@@ -1281,10 +1339,11 @@ export const ChatInput = memo(forwardRef<ChatInputHandles, ChatInputProps>(
       onSubmit(message, {
         agent_id: selectedAgentId,
         model_name: baseModelName && baseModelName.trim() ? baseModelName.trim() : undefined,
+        mode: selectedMode || undefined,
       });
 
       // Keep files visible with loading spinner - they'll be cleared when agent starts running
-    }, [loading, disabled, isAgentRunning, isUploading, onStopAgent, generateDataOptionsMarkdown, generateSlidesWorkflowMarkdown, generateSlidesTemplateMarkdown, getActualModelId, selectedModel, onSubmit, selectedAgentId]);
+    }, [loading, disabled, isAgentRunning, isUploading, onStopAgent, generateDataOptionsMarkdown, generateSlidesWorkflowMarkdown, generateSlidesTemplateMarkdown, generateDocsWorkflowMarkdown, generateResearchWorkflowMarkdown, getActualModelId, selectedModel, onSubmit, selectedAgentId, selectedMode]);
 
     // Handle paste for image files
     const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {

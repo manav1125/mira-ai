@@ -85,6 +85,7 @@ export const unifiedAgentStart = async (options: {
   prompt?: string;
   model_name?: string;
   agent_id?: string;
+  mode?: string;
   files?: File[];
 }): Promise<{ thread_id: string; agent_run_id: string; project_id?: string; sandbox_id?: string; status: string }> => {
   try {
@@ -113,6 +114,10 @@ export const unifiedAgentStart = async (options: {
     
     if (options.agent_id) {
       formData.append('agent_id', options.agent_id);
+    }
+
+    if (options.mode && options.mode.trim()) {
+      formData.append('mode', options.mode.trim());
     }
     
     // Append files if present
@@ -745,4 +750,3 @@ export const streamAgent = (
     return () => {};
   }
 };
-
