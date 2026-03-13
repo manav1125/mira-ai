@@ -52,8 +52,6 @@ import { useVoicePlayerStore } from '@/stores/voice-player-store';
 import posthog from 'posthog-js';
 import { trackCtaUpgrade } from '@/lib/analytics/gtm';
 
-const ENABLE_LIVE_VOICE = process.env.NEXT_PUBLIC_ENABLE_LIVE_VOICE === 'true';
-
 // ============================================================================
 // ISOLATED TEXTAREA - Manages its own state to prevent parent re-renders
 // ============================================================================
@@ -1561,7 +1559,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandles, ChatInputProps>(
           />
         )}
 
-        {ENABLE_LIVE_VOICE && isLoggedIn && threadId && (
+        {isLoggedIn && threadId && (
           <LiveVoiceButton
             threadId={threadId}
             selectedAgentId={selectedAgentId}
