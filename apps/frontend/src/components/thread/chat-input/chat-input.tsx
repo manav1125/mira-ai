@@ -21,6 +21,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { X, Image as ImageIcon, Presentation, BarChart3, FileText, Search, Palette, Video, Code2, Sparkles, Brain as BrainIcon, MessageSquare, CornerDownLeft, Plug, Lock } from 'lucide-react';
 import { KortixLoader } from '@/components/ui/kortix-loader';
 import { VoiceRecorder } from './voice-recorder';
+import { LiveVoiceButton } from './live-voice-button';
 import { useTheme } from 'next-themes';
 import { useTranslations } from 'next-intl';
 import { AttachmentGroup } from '../file-attachment';
@@ -50,6 +51,8 @@ import { useVoicePlayerStore } from '@/stores/voice-player-store';
 
 import posthog from 'posthog-js';
 import { trackCtaUpgrade } from '@/lib/analytics/gtm';
+
+const ENABLE_LIVE_VOICE = process.env.NEXT_PUBLIC_ENABLE_LIVE_VOICE === 'true';
 
 // ============================================================================
 // ISOLATED TEXTAREA - Manages its own state to prevent parent re-renders
@@ -1555,6 +1558,14 @@ export const ChatInput = memo(forwardRef<ChatInputHandles, ChatInputProps>(
             isLoggedIn={isLoggedIn}
             selectedAgentId={selectedAgentId}
             onAgentSelect={onAgentSelect}
+          />
+        )}
+
+        {ENABLE_LIVE_VOICE && isLoggedIn && threadId && (
+          <LiveVoiceButton
+            threadId={threadId}
+            selectedAgentId={selectedAgentId}
+            disabled={loading || disabled || isUploading || isAgentRunning}
           />
         )}
 

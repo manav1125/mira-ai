@@ -1,74 +1,398 @@
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, Optional, Literal
+from urllib.parse import urlparse
+
 from fastapi import APIRouter, Request, HTTPException, Depends
+import jwt
+from pydantic import BaseModel, Field
+
 from core.endpoints.vapi_webhooks import VapiWebhookHandler
-from core.utils.logger import logger
+from core.utils.auth_utils import AuthorizedThreadAccess, require_thread_write_access
 from core.utils.config import config
-from typing import Dict, Any
+from core.utils.logger import logger
 
 router = APIRouter(tags=["vapi"])
 
 webhook_handler = VapiWebhookHandler()
 
+
+class VapiWebSessionRequest(BaseModel):
+    agent_id: Optional[str] = None
+
+
+class VapiWebTranscriptRequest(BaseModel):
+    role: Literal["user", "assistant"]
+    transcript: str = Field(min_length=1, max_length=20000)
+    call_id: Optional[str] = None
+    dedupe_key: Optional[str] = None
+    timestamp: Optional[float] = None
+    agent_id: Optional[str] = None
+
+
+def _normalize_origin(url: Optional[str]) -> Optional[str]:
+    if not url:
+        return None
+
+    parsed = urlparse(url)
+    if not parsed.scheme or not parsed.netloc:
+        return url.rstrip("/")
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def _message_text(content: Any) -> str:
+    if isinstance(content, dict):
+        return str(content.get("content") or content.get("text") or "").strip()
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, dict):
+                item_text = item.get("text") or item.get("content") or ""
+                if item_text:
+                    parts.append(str(item_text).strip())
+            elif item:
+                parts.append(str(item).strip())
+        return " ".join(part for part in parts if part)
+    return str(content or "").strip()
+
+
+async def _format_recent_thread_context(thread_id: str, limit: int = 10) -> Optional[str]:
+    from core.threads import repo as threads_repo
+
+    try:
+        raw_messages = await threads_repo.get_thread_messages(thread_id, order="asc")
+    except Exception as exc:
+        logger.warning(f"Failed to load recent thread context for Vapi session: {exc}")
+        return None
+
+    if not raw_messages:
+        return None
+
+    conversation_lines = []
+    for message in raw_messages[-limit:]:
+        role = "Assistant" if message.get("type") == "assistant" else "User"
+        text = _message_text(message.get("content"))
+        if not text:
+            continue
+        conversation_lines.append(f"{role}: {text[:800]}")
+
+    if not conversation_lines:
+        return None
+
+    return "\n".join(conversation_lines)
+
+
+async def _fetch_voice_memory_context(user_id: str, thread_id: str) -> Optional[str]:
+    if not config.ENABLE_MEMORY:
+        return None
+
+    try:
+        from core.billing import subscription_service
+        from core.memory.retrieval_service import memory_retrieval_service
+        from core.threads import repo as threads_repo
+
+        user_memory_enabled = await threads_repo.get_user_memory_enabled(user_id)
+        if not user_memory_enabled:
+            return None
+
+        thread_memory_enabled = await threads_repo.get_thread_memory_enabled(thread_id)
+        if not thread_memory_enabled:
+            return None
+
+        recent_messages = await threads_repo.get_thread_messages(thread_id, order="asc")
+        recent_user_text = [
+            _message_text(message.get("content"))
+            for message in recent_messages[-6:]
+            if message.get("type") == "user"
+        ]
+        query_text = "\n".join(part for part in recent_user_text if part).strip()
+        if len(query_text) < 10:
+            return None
+
+        tier_info = await subscription_service.get_user_subscription_tier(user_id)
+        memories = await memory_retrieval_service.retrieve_memories(
+            account_id=user_id,
+            query_text=query_text,
+            tier_name=tier_info["name"],
+        )
+
+        if not memories:
+            return None
+
+        return memory_retrieval_service.format_memories_for_prompt(memories)
+    except Exception as exc:
+        logger.warning(f"Failed to fetch memory context for Vapi session: {exc}")
+        return None
+
+
+async def _build_voice_system_prompt(thread_id: str, user_id: str, agent_id: Optional[str]) -> Dict[str, Optional[str]]:
+    from core.agents.agent_loader import AgentLoader
+
+    agent_name = "Mira"
+    base_prompt = (
+        "You are Mira, an AI coach, guide, and operator for founders and investors. "
+        "Be thoughtful, strategic, and collaborative. In live voice mode, sound natural and conversational. "
+        "Give direct answers, ask clarifying questions when needed, and keep most spoken turns to one to three sentences. "
+        "When the user asks for deep research or a long-form deliverable, explain that you can research it properly and prepare a written brief in the thread."
+    )
+
+    if agent_id:
+        try:
+            agent_data = await AgentLoader().load_agent(agent_id, user_id, load_config=True)
+            agent_name = agent_data.name or agent_name
+            if agent_data.system_prompt:
+                base_prompt = agent_data.system_prompt.strip()
+        except Exception as exc:
+            logger.warning(f"Failed to load agent {agent_id} for Vapi session: {exc}")
+
+    recent_context = await _format_recent_thread_context(thread_id)
+    memory_context = await _fetch_voice_memory_context(user_id, thread_id)
+
+    prompt_parts = [
+        base_prompt,
+        "",
+        "LIVE VOICE MODE BEHAVIOR:",
+        "- Speak like a supportive, highly capable teammate, not a chatbot reading a memo.",
+        "- Keep answers crisp unless the user explicitly asks you to go deeper.",
+        "- If you do not know something yet, say so and suggest the next best step.",
+        "- Do not claim that you searched, opened files, or completed actions unless that actually happened.",
+        "- If the user wants a detailed report, strategy memo, deck, or proposal, offer to produce it asynchronously in the thread after the call.",
+    ]
+
+    if memory_context:
+        prompt_parts.extend(["", "RELEVANT USER MEMORY:", memory_context])
+
+    if recent_context:
+        prompt_parts.extend(["", "RECENT THREAD CONTEXT:", recent_context])
+
+    return {
+        "agent_name": agent_name,
+        "prompt": "\n".join(part for part in prompt_parts if part is not None).strip(),
+    }
+
+
+def _build_transient_assistant(prompt: str, agent_name: str) -> Dict[str, Any]:
+    return {
+        "firstMessageMode": "assistant-waits-for-user",
+        "maxDurationSeconds": 1800,
+        "backgroundSound": "off",
+        "modelOutputInMessagesEnabled": True,
+        "model": {
+            "provider": "openai",
+            "model": "gpt-4.1-mini",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": prompt,
+                }
+            ],
+        },
+        "voice": {
+            "provider": "vapi",
+            "voiceId": "Hana",
+        },
+        "metadata": {
+            "agentName": agent_name,
+            "experience": "mira-live-voice",
+        },
+    }
+
+
+async def _mint_public_vapi_token(request: Request) -> str:
+    if not config.VAPI_PRIVATE_KEY or not config.VAPI_ORG_ID:
+        raise HTTPException(
+            status_code=503,
+            detail="Live voice is not configured yet. Missing VAPI_ORG_ID or VAPI_PRIVATE_KEY.",
+        )
+
+    allowed_origins = {
+        origin
+        for origin in {
+            _normalize_origin(config.FRONTEND_URL),
+            _normalize_origin(request.headers.get("origin")),
+        }
+        if origin
+    }
+
+    try:
+        payload = {
+            "orgId": config.VAPI_ORG_ID,
+            "token": {
+                "tag": "public",
+                "restrictions": {
+                    "enabled": True,
+                    "allowedOrigins": sorted(allowed_origins) if allowed_origins else [],
+                    "allowTransientAssistant": True,
+                },
+            },
+            "iat": int(datetime.now(timezone.utc).timestamp()),
+            "exp": int((datetime.now(timezone.utc) + timedelta(hours=1)).timestamp()),
+        }
+        return jwt.encode(payload, config.VAPI_PRIVATE_KEY, algorithm="HS256")
+    except Exception as exc:
+        logger.error(f"Failed to generate Vapi public JWT: {exc}")
+        raise HTTPException(
+            status_code=503,
+            detail="Live voice is not configured correctly yet. Vapi JWT generation failed.",
+        )
+
+
 @router.post("/webhooks/vapi", summary="Vapi Webhook Handler", operation_id="vapi_webhook")
 async def handle_vapi_webhook(request: Request):
     try:
+        if config.VAPI_WEBHOOK_SECRET:
+            signature_valid = await webhook_handler.verify_signature(request, config.VAPI_WEBHOOK_SECRET)
+            if not signature_valid:
+                raise HTTPException(status_code=401, detail="Invalid Vapi webhook signature")
+
         payload = await request.json()
-        
+
         event_type = (
             payload.get("message", {}).get("type") if "message" in payload
             else payload.get("type") or payload.get("event")
         )
-        
+
         if not event_type:
             return {"status": "ok", "message": "Webhook received but event type not recognized"}
-        
+
         return await webhook_handler.handle_webhook(event_type, payload)
-    
+
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Error processing Vapi webhook: {e}")
+    except Exception as exc:
+        logger.error(f"Error processing Vapi webhook: {exc}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/vapi/web/session/{thread_id}", summary="Create Vapi Web Session", operation_id="create_vapi_web_session")
+async def create_vapi_web_session(
+    thread_id: str,
+    payload: VapiWebSessionRequest,
+    request: Request,
+    auth: AuthorizedThreadAccess = Depends(require_thread_write_access),
+):
+    try:
+        prompt_data = await _build_voice_system_prompt(thread_id, auth.user_id, payload.agent_id)
+        token = await _mint_public_vapi_token(request)
+        assistant = _build_transient_assistant(prompt_data["prompt"], prompt_data["agent_name"] or "Mira")
+
+        return {
+            "token": token,
+            "assistant": assistant,
+            "thread_id": thread_id,
+            "agent_id": payload.agent_id,
+            "agent_name": prompt_data["agent_name"] or "Mira",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Failed to create Vapi web session for thread {thread_id}: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to start live voice session")
+
+
+@router.post("/vapi/web/transcript/{thread_id}", summary="Persist Vapi Web Transcript Turn", operation_id="persist_vapi_web_transcript")
+async def persist_vapi_web_transcript(
+    thread_id: str,
+    payload: VapiWebTranscriptRequest,
+    auth: AuthorizedThreadAccess = Depends(require_thread_write_access),
+):
+    from core.memory.background_jobs import queue_memory_extraction
+    from core.services.db import execute_one
+    from core.threads import repo as threads_repo
+
+    transcript = payload.transcript.strip()
+    if not transcript:
+        raise HTTPException(status_code=400, detail="Transcript content cannot be empty")
+
+    dedupe_key = payload.dedupe_key or f"{payload.call_id or 'voice'}:{payload.role}:{payload.timestamp or ''}:{transcript[:200]}"
+
+    existing = await execute_one(
+        """
+        SELECT message_id
+        FROM messages
+        WHERE thread_id = :thread_id
+          AND metadata->>'voice_source' = 'vapi_web'
+          AND metadata->>'voice_dedupe_key' = :dedupe_key
+        LIMIT 1
+        """,
+        {
+            "thread_id": thread_id,
+            "dedupe_key": dedupe_key,
+        },
+    )
+
+    if existing:
+        return {
+            "status": "duplicate",
+            "message_id": str(existing["message_id"]),
+        }
+
+    message = await threads_repo.insert_message(
+        thread_id=thread_id,
+        message_type=payload.role,
+        content={
+            "role": payload.role,
+            "content": transcript,
+        },
+        is_llm_message=payload.role == "assistant",
+        metadata={
+            "voice_source": "vapi_web",
+            "voice_call_id": payload.call_id,
+            "voice_dedupe_key": dedupe_key,
+            "voice_timestamp": payload.timestamp,
+        },
+        agent_id=payload.agent_id if payload.role == "assistant" else None,
+    )
+
+    queue_memory_extraction(thread_id, auth.user_id, [message.get("message_id")])
+
+    return {
+        "status": "persisted",
+        "message": message,
+    }
+
 
 @router.get("/vapi/calls/{call_id}", summary="Get Call Details", operation_id="get_vapi_call")
 async def get_call_details(call_id: str):
     try:
         from core.services.supabase import DBConnection
+
         db = DBConnection()
         client = await db.client
-        
+
         result = await client.table("vapi_calls").select("*").eq("call_id", call_id).single().execute()
-        
+
         if not result.data:
             raise HTTPException(status_code=404, detail="Call not found")
-        
+
         return result.data
-    
+
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Error retrieving call details: {e}")
+    except Exception as exc:
+        logger.error(f"Error retrieving call details: {exc}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
 
 @router.get("/vapi/calls", summary="List Calls", operation_id="list_vapi_calls")
 async def list_calls(limit: int = 10, thread_id: str = None):
     try:
         from core.services.supabase import DBConnection
+
         db = DBConnection()
         client = await db.client
-        
+
         query = client.table("vapi_calls").select("*").order("created_at", desc=True).limit(limit)
-        
+
         if thread_id:
             query = query.eq("thread_id", thread_id)
-        
+
         result = await query.execute()
-        
+
         return {
             "calls": result.data,
-            "count": len(result.data)
+            "count": len(result.data),
         }
-    
-    except Exception as e:
-        logger.error(f"Error listing calls: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
 
+    except Exception as exc:
+        logger.error(f"Error listing calls: {exc}")
+        raise HTTPException(status_code=500, detail="Internal server error")

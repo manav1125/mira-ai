@@ -354,8 +354,10 @@ class Configuration:
     REPLICATE_API_TOKEN: Optional[str] = None
     
     VAPI_PRIVATE_KEY: Optional[str] = None
+    VAPI_ORG_ID: Optional[str] = None
     VAPI_PHONE_NUMBER_ID: Optional[str] = None
     VAPI_SERVER_URL: Optional[str] = None
+    VAPI_WEBHOOK_SECRET: Optional[str] = None
     
     # Freestyle deployment configuration
     FREESTYLE_API_KEY: Optional[str] = None
