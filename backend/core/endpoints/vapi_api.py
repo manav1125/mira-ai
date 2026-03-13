@@ -1,9 +1,6 @@
-from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Literal
-from urllib.parse import urlparse
 
 from fastapi import APIRouter, Request, HTTPException, Depends
-import jwt
 from pydantic import BaseModel, Field
 
 from core.endpoints.vapi_webhooks import VapiWebhookHandler
@@ -27,16 +24,6 @@ class VapiWebTranscriptRequest(BaseModel):
     dedupe_key: Optional[str] = None
     timestamp: Optional[float] = None
     agent_id: Optional[str] = None
-
-
-def _normalize_origin(url: Optional[str]) -> Optional[str]:
-    if not url:
-        return None
-
-    parsed = urlparse(url)
-    if not parsed.scheme or not parsed.netloc:
-        return url.rstrip("/")
-    return f"{parsed.scheme}://{parsed.netloc}"
 
 
 def _message_text(content: Any) -> str:
@@ -197,45 +184,6 @@ def _build_transient_assistant(prompt: str, agent_name: str) -> Dict[str, Any]:
     }
 
 
-async def _mint_public_vapi_token(request: Request) -> str:
-    if not config.VAPI_PRIVATE_KEY or not config.VAPI_ORG_ID:
-        raise HTTPException(
-            status_code=503,
-            detail="Live voice is not configured yet. Missing VAPI_ORG_ID or VAPI_PRIVATE_KEY.",
-        )
-
-    allowed_origins = {
-        origin
-        for origin in {
-            _normalize_origin(config.FRONTEND_URL),
-            _normalize_origin(request.headers.get("origin")),
-        }
-        if origin
-    }
-
-    try:
-        payload = {
-            "orgId": config.VAPI_ORG_ID,
-            "token": {
-                "tag": "public",
-                "restrictions": {
-                    "enabled": True,
-                    "allowedOrigins": sorted(allowed_origins) if allowed_origins else [],
-                    "allowTransientAssistant": True,
-                },
-            },
-            "iat": int(datetime.now(timezone.utc).timestamp()),
-            "exp": int((datetime.now(timezone.utc) + timedelta(hours=1)).timestamp()),
-        }
-        return jwt.encode(payload, config.VAPI_PRIVATE_KEY, algorithm="HS256")
-    except Exception as exc:
-        logger.error(f"Failed to generate Vapi public JWT: {exc}")
-        raise HTTPException(
-            status_code=503,
-            detail="Live voice is not configured correctly yet. Vapi JWT generation failed.",
-        )
-
-
 @router.post("/webhooks/vapi", summary="Vapi Webhook Handler", operation_id="vapi_webhook")
 async def handle_vapi_webhook(request: Request):
     try:
@@ -267,16 +215,20 @@ async def handle_vapi_webhook(request: Request):
 async def create_vapi_web_session(
     thread_id: str,
     payload: VapiWebSessionRequest,
-    request: Request,
     auth: AuthorizedThreadAccess = Depends(require_thread_write_access),
 ):
     try:
+        if not config.VAPI_PUBLIC_KEY:
+            raise HTTPException(
+                status_code=503,
+                detail="Live voice is not configured yet. Missing VAPI_PUBLIC_KEY.",
+            )
+
         prompt_data = await _build_voice_system_prompt(thread_id, auth.user_id, payload.agent_id)
-        token = await _mint_public_vapi_token(request)
         assistant = _build_transient_assistant(prompt_data["prompt"], prompt_data["agent_name"] or "Mira")
 
         return {
-            "token": token,
+            "public_key": config.VAPI_PUBLIC_KEY,
             "assistant": assistant,
             "thread_id": thread_id,
             "agent_id": payload.agent_id,

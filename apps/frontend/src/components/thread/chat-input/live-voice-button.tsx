@@ -16,7 +16,7 @@ interface TranscriptPreview {
 }
 
 interface VapiSessionResponse {
-  token: string;
+  public_key: string;
   assistant: Record<string, unknown>;
   thread_id: string;
   agent_id?: string | null;
@@ -172,7 +172,7 @@ export const LiveVoiceButton: React.FC<LiveVoiceButtonProps> = memo(function Liv
 
     try {
       const { default: Vapi } = await import('@vapi-ai/web');
-      const vapi = new Vapi(sessionResponse.data.token);
+      const vapi = new Vapi(sessionResponse.data.public_key);
       vapiRef.current = vapi;
 
       vapi.on('call-start', () => {
@@ -204,12 +204,30 @@ export const LiveVoiceButton: React.FC<LiveVoiceButtonProps> = memo(function Liv
         void handleVapiMessage(message);
       });
 
+      vapi.on('call-start-failed', (event: any) => {
+        console.error('Vapi live voice call-start-failed', event);
+        if (!mountedRef.current) return;
+        const detail =
+          event?.error ||
+          event?.context?.error ||
+          event?.context?.message ||
+          'Live voice failed to connect.';
+        setConnectionState('error');
+        setErrorMessage(String(detail));
+        setStatusText('Live voice could not connect.');
+      });
+
       vapi.on('error', (error: any) => {
         console.error('Vapi live voice error', error);
         if (!mountedRef.current) return;
-        const detail = error?.message || 'Live voice hit an unexpected error.';
+        const detail =
+          error?.message ||
+          error?.error?.message ||
+          error?.errorMsg ||
+          error?.error ||
+          'Live voice hit an unexpected error.';
         setConnectionState('error');
-        setErrorMessage(detail);
+        setErrorMessage(String(detail));
         setStatusText('Live voice encountered an error.');
       });
 
