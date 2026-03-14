@@ -728,17 +728,21 @@ async def get_thread_messages(
             optimized_list = []
             for msg in raw_messages:
                 msg_type = msg.get('type')
+                metadata = msg.get('metadata', {}) or {}
+                is_voice_transcript = metadata.get('voice_source') == 'vapi_web'
                 optimized_msg = {
                     'message_id': msg.get('message_id'),
                     'thread_id': msg.get('thread_id'),
                     'type': msg_type,
                     'is_llm_message': msg.get('is_llm_message'),
-                    'metadata': msg.get('metadata', {}),
+                    'metadata': metadata,
                     'created_at': msg.get('created_at'),
                     'updated_at': msg.get('updated_at'),
                     'agent_id': msg.get('agent_id'),
                 }
-                if msg_type == 'user':
+                # Keep the optimized payload small for normal assistant/tool traffic, but
+                # include content for voice transcript turns so they can appear in chat.
+                if msg_type == 'user' or is_voice_transcript:
                     optimized_msg['content'] = msg.get('content')
                 optimized_list.append(optimized_msg)
             return optimized_list

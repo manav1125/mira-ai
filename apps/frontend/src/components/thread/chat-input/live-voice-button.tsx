@@ -1,18 +1,27 @@
 'use client';
 
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { AudioLines, Loader2, MicOff, PhoneOff, PhoneOutgoing } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { backendApi } from '@/lib/api-client';
+import { threadKeys } from '@/hooks/threads/keys';
 
 type ConnectionState = 'idle' | 'connecting' | 'connected' | 'error';
 
 interface TranscriptPreview {
   role: 'user' | 'assistant';
   text: string;
+}
+
+interface PersistableTranscriptTurn {
+  role: 'user' | 'assistant';
+  text: string;
+  timestamp?: number | null;
+  dedupeSuffix?: string;
 }
 
 interface VapiSessionResponse {
@@ -34,6 +43,7 @@ export const LiveVoiceButton: React.FC<LiveVoiceButtonProps> = memo(function Liv
   selectedAgentId,
   disabled = false,
 }) {
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [connectionState, setConnectionState] = useState<ConnectionState>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -59,6 +69,110 @@ export const LiveVoiceButton: React.FC<LiveVoiceButtonProps> = memo(function Liv
     };
   }, []);
 
+  const normalizeRole = useCallback((value: unknown): 'user' | 'assistant' | null => {
+    const normalized = String(value || '').toLowerCase();
+    if (!normalized) return null;
+    if (normalized === 'user') return 'user';
+    if (['assistant', 'bot', 'agent', 'model', 'system'].includes(normalized)) return 'assistant';
+    return null;
+  }, []);
+
+  const extractText = useCallback((value: unknown): string => {
+    if (!value) return '';
+    if (typeof value === 'string') return value.trim();
+    if (Array.isArray(value)) {
+      return value
+        .map((item) => extractText(item))
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+    }
+    if (typeof value === 'object') {
+      const record = value as Record<string, unknown>;
+      return (
+        extractText(record.transcript) ||
+        extractText(record.text) ||
+        extractText(record.message) ||
+        extractText(record.content) ||
+        ''
+      ).trim();
+    }
+    return String(value).trim();
+  }, []);
+
+  const extractTranscriptTurns = useCallback((message: any): PersistableTranscriptTurn[] => {
+    const turns: PersistableTranscriptTurn[] = [];
+    const seen = new Set<string>();
+    const type = String(message?.type || '').toLowerCase();
+
+    const pushTurn = (
+      roleValue: unknown,
+      textValue: unknown,
+      timestamp?: number | null,
+      dedupeSuffix?: string
+    ) => {
+      const role = normalizeRole(roleValue);
+      const text = extractText(textValue);
+      if (!role || !text) return;
+
+      const localKey = `${role}::${timestamp ?? ''}::${dedupeSuffix ?? ''}::${text}`;
+      if (seen.has(localKey)) return;
+      seen.add(localKey);
+
+      turns.push({ role, text, timestamp: timestamp ?? null, dedupeSuffix });
+    };
+
+    const directTranscriptType = String(
+      message?.transcriptType ||
+      message?.transcript?.type ||
+      message?.message?.transcriptType ||
+      ''
+    ).toLowerCase();
+    const isDirectTranscriptEvent =
+      type.includes('transcript') ||
+      Boolean(message?.transcript) ||
+      Boolean(message?.message?.transcript);
+    const looksFinalDirectTurn =
+      !directTranscriptType || directTranscriptType === 'final' || type.includes('final');
+
+    if (isDirectTranscriptEvent && looksFinalDirectTurn) {
+      pushTurn(
+        message?.role ?? message?.speaker ?? message?.from,
+        message?.transcript ?? message?.message?.transcript ?? message?.content ?? message?.message,
+        message?.timestamp ?? null,
+        'direct'
+      );
+    }
+
+    const collections = [
+      message?.conversation,
+      message?.messages,
+      message?.artifact?.messages,
+      message?.message?.conversation,
+      message?.message?.messages,
+      message?.message?.artifact?.messages,
+    ].filter(Array.isArray) as Array<any[]>;
+
+    collections.forEach((collection, collectionIndex) => {
+      collection.forEach((item, itemIndex) => {
+        const itemTranscriptType = String(
+          item?.transcriptType || item?.transcript?.type || ''
+        ).toLowerCase();
+        const shouldSkipInterim = itemTranscriptType && itemTranscriptType !== 'final';
+        if (shouldSkipInterim) return;
+
+        pushTurn(
+          item?.role ?? item?.speaker ?? item?.from,
+          item?.transcript ?? item?.message ?? item?.content ?? item?.text,
+          item?.timestamp ?? item?.time ?? message?.timestamp ?? null,
+          `collection-${collectionIndex}-${itemIndex}`
+        );
+      });
+    });
+
+    return turns;
+  }, [extractText, normalizeRole]);
+
   const stopSession = useCallback(async () => {
     if (!vapiRef.current) {
       setConnectionState('idle');
@@ -81,17 +195,18 @@ export const LiveVoiceButton: React.FC<LiveVoiceButtonProps> = memo(function Liv
     }
   }, []);
 
-  const persistTranscript = useCallback(async (message: any) => {
-    const transcript = String(message?.transcript || '').trim();
-    const role = message?.role === 'assistant' ? 'assistant' : 'user';
+  const persistTranscript = useCallback(async (turn: PersistableTranscriptTurn, callId?: string | null) => {
+    const transcript = turn.text.trim();
+    const role = turn.role;
     if (!transcript) {
       return;
     }
 
     const dedupeKey = [
-      message?.call?.id || 'no-call',
+      callId || 'no-call',
       role,
-      String(message?.timestamp ?? ''),
+      String(turn.timestamp ?? ''),
+      turn.dedupeSuffix || '',
       transcript,
     ].join('::');
 
@@ -110,9 +225,9 @@ export const LiveVoiceButton: React.FC<LiveVoiceButtonProps> = memo(function Liv
       {
         role,
         transcript,
-        call_id: message?.call?.id ?? null,
+        call_id: callId ?? null,
         dedupe_key: dedupeKey,
-        timestamp: message?.timestamp ?? null,
+        timestamp: turn.timestamp ?? null,
         agent_id: role === 'assistant' ? selectedAgentId ?? null : null,
       },
       {
@@ -123,24 +238,34 @@ export const LiveVoiceButton: React.FC<LiveVoiceButtonProps> = memo(function Liv
 
     if (response.error) {
       console.error('Failed to persist live voice transcript turn', response.error);
+      return false;
     }
+
+    return true;
   }, [selectedAgentId, threadId]);
 
   const handleVapiMessage = useCallback((message: any) => {
     const type = String(message?.type || '');
 
-    if (type.startsWith('transcript')) {
-      const transcriptType = message?.transcriptType;
-      if (transcriptType === 'final' || type === "transcript[transcriptType='final']") {
-        void persistTranscript(message);
-      }
-      return;
-    }
-
     if (type === 'status-update' && message?.status) {
       setStatusText(`Status: ${message.status}`);
     }
-  }, [persistTranscript]);
+
+    const turns = extractTranscriptTurns(message);
+    if (turns.length === 0) {
+      return;
+    }
+
+    void (async () => {
+      const results = await Promise.all(
+        turns.map((turn) => persistTranscript(turn, message?.call?.id ?? null))
+      );
+
+      if (results.some(Boolean)) {
+        void queryClient.invalidateQueries({ queryKey: threadKeys.messages(threadId) });
+      }
+    })();
+  }, [extractTranscriptTurns, persistTranscript, queryClient, threadId]);
 
   const startSession = useCallback(async () => {
     setConnectionState('connecting');
@@ -185,6 +310,7 @@ export const LiveVoiceButton: React.FC<LiveVoiceButtonProps> = memo(function Liv
         if (!mountedRef.current) return;
         vapiRef.current = null;
         persistedKeysRef.current.clear();
+        void queryClient.invalidateQueries({ queryKey: threadKeys.messages(threadId) });
         setConnectionState('idle');
         setIsMuted(false);
         setStatusText('Voice session ended.');
@@ -290,7 +416,7 @@ export const LiveVoiceButton: React.FC<LiveVoiceButtonProps> = memo(function Liv
           <DialogHeader>
             <DialogTitle>Live voice with {activeAgentName}</DialogTitle>
             <DialogDescription>
-              Have a real-time conversation in this thread. Final transcript turns are saved back into the conversation so memory can pick them up.
+              Talk through ideas in this thread in real time. Final transcript turns are synced back into chat so thread context and memory can pick them up. For heavy research or long-running work, follow up in chat after the call.
             </DialogDescription>
           </DialogHeader>
 
