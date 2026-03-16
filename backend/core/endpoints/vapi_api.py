@@ -1,4 +1,5 @@
 from typing import Any, Dict, Optional, Literal, List
+import asyncio
 import json
 import re
 
@@ -500,12 +501,11 @@ def _build_transient_assistant(prompt: str, agent_name: str) -> Dict[str, Any]:
             "provider": "vapi",
             "voiceId": "Hana",
         },
-        "transcriber": {
-            "provider": "deepgram",
-            "model": "nova-3",
-            "language": "en",
-            "disablePartialTranscripts": True,
-        },
+    "transcriber": {
+        "provider": "deepgram",
+        "model": "nova-3",
+        "language": "en",
+    },
         "metadata": {
             "agentName": agent_name,
             "experience": "mira-live-voice",
