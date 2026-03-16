@@ -7,8 +7,9 @@ from pydantic import BaseModel, Field
 
 from core.endpoints.vapi_webhooks import VapiWebhookHandler
 from core.services.http_client import get_http_client
-from core.utils.auth_utils import AuthorizedThreadAccess, require_thread_write_access
-from core.utils.config import config
+from core.api_models import CreateThreadResponse
+from core.utils.auth_utils import AuthorizedThreadAccess, require_thread_write_access, verify_and_get_user_id_from_jwt
+from core.utils.config import config, EnvMode
 from core.utils.logger import logger
 
 router = APIRouter(tags=["vapi"])
@@ -18,6 +19,11 @@ webhook_handler = VapiWebhookHandler()
 
 class VapiWebSessionRequest(BaseModel):
     agent_id: Optional[str] = None
+
+
+class VapiWebThreadRequest(BaseModel):
+    agent_id: Optional[str] = None
+    title: Optional[str] = Field(default="Voice Conversation", max_length=120)
 
 
 class VapiWebTranscriptRequest(BaseModel):
@@ -505,6 +511,95 @@ def _build_transient_assistant(prompt: str, agent_name: str) -> Dict[str, Any]:
             "experience": "mira-live-voice",
         },
     }
+
+
+@router.post("/vapi/web/thread", response_model=CreateThreadResponse, summary="Create Voice Thread", operation_id="create_vapi_voice_thread")
+async def create_vapi_voice_thread(
+    payload: VapiWebThreadRequest,
+    user_id: str = Depends(verify_and_get_user_id_from_jwt),
+):
+    from core.threads import repo as threads_repo
+
+    title = _normalize_whitespace(payload.title or "Voice Conversation") or "Voice Conversation"
+    account_id = user_id
+
+    try:
+        if config.ENV_MODE != EnvMode.LOCAL:
+            from core.agents.pipeline.slot_manager import check_project_limit, check_thread_limit
+
+            thread_check, project_check = await asyncio.gather(
+                check_thread_limit(account_id),
+                check_project_limit(account_id),
+            )
+
+            if not thread_check.allowed:
+                raise HTTPException(
+                    status_code=402,
+                    detail={
+                        "message": thread_check.message,
+                        "current_count": thread_check.current_count,
+                        "limit": thread_check.limit,
+                        "error_code": thread_check.error_code or "THREAD_LIMIT_EXCEEDED",
+                    },
+                )
+
+            if not project_check.allowed:
+                raise HTTPException(
+                    status_code=402,
+                    detail={
+                        "message": project_check.message,
+                        "current_count": project_check.current_count,
+                        "limit": project_check.limit,
+                        "error_code": project_check.error_code or "PROJECT_LIMIT_EXCEEDED",
+                    },
+                )
+
+        project_id = str(uuid.uuid4())
+        thread_id = str(uuid.uuid4())
+
+        result = await threads_repo.create_project_and_thread(
+            project_id=project_id,
+            thread_id=thread_id,
+            account_id=account_id,
+            project_name=title,
+            thread_name=title,
+            status="ready",
+        )
+
+        if not result:
+            raise HTTPException(status_code=500, detail="Failed to create voice conversation")
+
+        try:
+            from core.agents.pipeline.slot_manager import increment_project_count, increment_thread_count
+
+            asyncio.create_task(increment_thread_count(account_id))
+            asyncio.create_task(increment_project_count(account_id))
+        except Exception:
+            pass
+
+        try:
+            from core.cache.runtime_cache import increment_thread_count_cache
+
+            asyncio.create_task(increment_thread_count_cache(account_id))
+        except Exception:
+            pass
+
+        try:
+            from core.billing.shared.cache_utils import invalidate_account_state_cache
+
+            asyncio.create_task(invalidate_account_state_cache(account_id))
+        except Exception:
+            pass
+
+        return {
+            "thread_id": result.get("thread_id", thread_id),
+            "project_id": result.get("project_id", project_id),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Failed to create lightweight voice thread for {account_id}: {exc}")
+        raise HTTPException(status_code=500, detail=f"Failed to create voice thread: {str(exc)}")
 
 
 @router.post("/webhooks/vapi", summary="Vapi Webhook Handler", operation_id="vapi_webhook")

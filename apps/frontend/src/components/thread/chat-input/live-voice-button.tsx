@@ -17,7 +17,6 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { backendApi } from '@/lib/api-client';
-import { createThread } from '@/lib/api/threads';
 import { threadKeys } from '@/hooks/threads/keys';
 import { toast } from '@/lib/toast';
 
@@ -48,6 +47,11 @@ interface VapiHandoffResponse {
     message_id?: string;
   };
   message_id?: string;
+}
+
+interface VoiceThreadResponse {
+  thread_id: string;
+  project_id?: string | null;
 }
 
 interface LiveVoiceButtonProps {
@@ -88,6 +92,17 @@ function formatVoiceError(value: unknown, fallback: string): string {
 
   if (typeof value === 'string') {
     const text = normalizeWhitespace(value);
+    if (text === '[object Object]') {
+      return fallback;
+    }
+    if (text.startsWith('{') && text.endsWith('}')) {
+      try {
+        const parsed = JSON.parse(text);
+        return formatVoiceError(parsed, fallback);
+      } catch {
+        return text || fallback;
+      }
+    }
     return text || fallback;
   }
 
@@ -605,7 +620,22 @@ export const LiveVoiceButton: React.FC<LiveVoiceButtonProps> = memo(function Liv
       setIsPreparingThread(true);
       setConnectionState('connecting');
       setStatusText('Creating your voice conversation...');
-      const newThread = await createThread(projectId);
+      const response = await backendApi.post<VoiceThreadResponse>(
+        '/vapi/web/thread',
+        {
+          agent_id: requestedAgentId ?? null,
+        },
+        {
+          showErrors: false,
+          timeout: 20000,
+        }
+      );
+
+      if (response.error || !response.data) {
+        throw response.error || new Error('Could not create a new voice conversation.');
+      }
+
+      const newThread = response.data;
       const params = new URLSearchParams({ voiceStart: '1' });
       if (requestedAgentId) {
         params.set('voiceAgentId', requestedAgentId);
