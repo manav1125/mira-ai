@@ -319,14 +319,12 @@ async def log_requests_middleware(request: Request, call_next):
 
 # Define allowed origins based on environment
 allowed_origins = [
-    "https://www.kortix.com",
-    "https://kortix.com",
-    "https://dev.kortix.com",
-    "https://staging.kortix.com",
-    "https://prod-test.kortix.com",
+    "https://mira-frontend-d85v.onrender.com",
+    "https://ventureverse.com",
+    "https://www.ventureverse.com",
 ]
-# Allow all *.kortix.com subdomains and Vercel preview deployments
-allow_origin_regex = r"https://([a-z0-9-]+\.)?kortix\.com|https://.*-kortixai\.vercel\.app|https://.*\.onrender\.com"
+# Allow Render-hosted deployments and preview environments.
+allow_origin_regex = r"https://.*\.onrender\.com|https://.*\.vercel\.app"
 
 def add_allowed_origin(origin):
     if not origin:
@@ -360,7 +358,7 @@ if config.ENV_MODE == EnvMode.LOCAL:
 
 # Add staging-specific origins
 if config.ENV_MODE == EnvMode.STAGING:
-    allowed_origins.append("https://staging.kortix.com")
+    add_allowed_origin(config.FRONTEND_URL)
     allowed_origins.append("http://localhost:3000")
 
 app.add_middleware(
@@ -416,6 +414,9 @@ api_router.include_router(transcription_api.router)
 
 from core.services import voice_generation as voice_api
 api_router.include_router(voice_api.router)
+
+from core.endpoints import vapi_api
+api_router.include_router(vapi_api.router)
 
 from core.knowledge_base import api as knowledge_base_api
 api_router.include_router(knowledge_base_api.router)
