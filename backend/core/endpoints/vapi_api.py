@@ -486,6 +486,7 @@ def _build_transient_assistant(prompt: str, agent_name: str) -> Dict[str, Any]:
     return {
         "firstMessageMode": "assistant-waits-for-user",
         "maxDurationSeconds": 1800,
+        "silenceTimeoutSeconds": 300,
         "backgroundSound": "off",
         "modelOutputInMessagesEnabled": False,
         "model": {
@@ -502,11 +503,23 @@ def _build_transient_assistant(prompt: str, agent_name: str) -> Dict[str, Any]:
             "provider": "vapi",
             "voiceId": "Hana",
         },
-    "transcriber": {
-        "provider": "deepgram",
-        "model": "nova-3",
-        "language": "en",
-    },
+        "transcriber": {
+            "provider": "deepgram",
+            "model": "nova-3",
+            "language": "en",
+        },
+        "startSpeakingPlan": {
+            "smartEndpointingPlan": {
+                "provider": "livekit",
+                "waitFunction": "2000 / (1 + exp(-10 * (x - 0.5)))",
+            },
+            "waitSeconds": 0.4,
+        },
+        "stopSpeakingPlan": {
+            "numWords": 0,
+            "voiceSeconds": 0.2,
+            "backoffSeconds": 1.0,
+        },
         "metadata": {
             "agentName": agent_name,
             "experience": "mira-live-voice",
