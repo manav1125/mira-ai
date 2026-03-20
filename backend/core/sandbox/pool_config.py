@@ -14,20 +14,20 @@ _DEFAULTS = {
         "batch_delay": 5,
     },
     EnvMode.STAGING: {
-        "min_size": 50,
-        "max_size": 100,
-        "check_interval": 20,
-        "parallel_create_limit": 5,
+        "min_size": 1,
+        "max_size": 4,
+        "check_interval": 30,
+        "parallel_create_limit": 2,
         "replenish_threshold": 0.5,
-        "batch_delay": 5,
+        "batch_delay": 10,
     },
     EnvMode.PRODUCTION: {
-        "min_size": 100, 
-        "max_size": 300,
-        "check_interval": 15,
-        "parallel_create_limit": 10,
-        "replenish_threshold": 0.7,
-        "batch_delay": 10,
+        "min_size": 2,
+        "max_size": 8,
+        "check_interval": 30,
+        "parallel_create_limit": 2,
+        "replenish_threshold": 0.5,
+        "batch_delay": 15,
     },
 }
 
@@ -49,11 +49,9 @@ def _is_pool_enabled() -> bool:
     if explicit_value is not None:
         return explicit_value
 
-    env_mode = config.ENV_MODE or EnvMode.LOCAL
-    if env_mode == EnvMode.LOCAL:
-        return False
-
-    return bool(config.DAYTONA_API_KEY)
+    # Pool warmup is opt-in. Auto-enabling it in non-local environments can
+    # silently burn Daytona capacity/credits even when traffic is light.
+    return False
 
 
 @dataclass
