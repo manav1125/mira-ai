@@ -648,7 +648,6 @@ function PricingCard({
                       <div className="flex-1">
                         <div className="flex items-center gap-1 sm:gap-1.5">
                           <span className="text-xs sm:text-sm font-medium">{match[1]} custom</span>
-                          <KortixLogo size={12} variant="symbol" className="hidden sm:block" />
                           <span className="text-xs sm:text-sm font-medium">AI Workers</span>
                         </div>
                         {description && (
@@ -673,8 +672,6 @@ function PricingCard({
                         <span className="text-[10px] sm:text-xs text-muted-foreground/60 line-through">Basic</span>
                         <span className="text-muted-foreground/40 text-xs">→</span>
                         <span className="inline-flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-0.5 bg-primary/10 dark:bg-primary/15 rounded-md">
-                          <KortixLogo size={10} variant="symbol" className="sm:hidden" />
-                          <KortixLogo size={12} variant="symbol" className="hidden sm:block" />
                           <span className="text-[10px] sm:text-xs font-semibold text-primary">Advanced</span>
                         </span>
                       </div>
@@ -1296,50 +1293,7 @@ export function PricingSection({
           )}
 
           {/* Promo Banner */}
-          {(() => {
-            const isFreeTierUser = !isAuthenticated || !accountState?.subscription ||
-              accountState.subscription.tier_key === 'free' ||
-              accountState.subscription.tier_key === 'none' ||
-              (accountState.tier?.monthly_credits ?? 0) === 0;
-
-            const showPromo = promo?.isActive && isFreeTierUser;
-
-            if (!showPromo) return null;
-
-            return (
-              <div className="mb-6 sm:mb-8">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-2xl border border-dashed border-primary/30 bg-primary/5 px-4 py-3 sm:px-6 sm:py-4">
-                  <div className="space-y-1">
-                    <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">
-                      <Gift className="h-3.5 w-3.5" />
-                      {promo.badgeLabel}
-                      <span className="flex items-center gap-1 text-muted-foreground tracking-normal normal-case">
-                        <Timer className="h-3.5 w-3.5" />
-                        {promo.timeLabel}
-                      </span>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      {promo.promoCode === 'KORTIX26'
-                        ? `Use code ${promo.promoCode} to get 30% off for the first three months + 2X credits as welcome bonus`
-                        : promo.description}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-sm tracking-[0.35em] px-4 h-9 flex items-center rounded-full bg-primary text-primary-foreground">
-                      {promo.promoCode}
-                    </span>
-                    <Button
-                      size="icon"
-                      onClick={handlePromoCopy}
-                      className="h-9 w-9 rounded-full"
-                    >
-                      {promoCodeCopied ? <CheckIcon className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
+          {null}
         </div>
 
         {/* Scheduled Downgrade Alert */}

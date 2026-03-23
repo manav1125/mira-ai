@@ -13,6 +13,8 @@ import { usePromo } from '@/hooks/utils/use-promo';
 const BANNER_DISMISSED_KEY = 'dashboard-promo-banner-dismissed';
 
 export function DashboardPromoBanner() {
+  return null;
+
   const [isDismissed, setIsDismissed] = useState(false);
   const [mounted, setMounted] = useState(false);
   const { data: accountState, isLoading } = useAccountState();
@@ -111,4 +113,3 @@ export function DashboardPromoBanner() {
     </AnimatePresence>
   );
 }
-
