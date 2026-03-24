@@ -37,24 +37,8 @@ const PresentationViewerWrapper = lazy(() =>
 const OnboardingProvider = lazy(() => 
   import('@/components/onboarding/onboarding-provider').then(mod => ({ default: mod.OnboardingProvider }))
 );
-const DashboardPromoBanner = lazy(() => 
-  import('@/components/home/dashboard-promo-banner').then(mod => ({ default: mod.DashboardPromoBanner }))
-);
-
 const PresenceDebug = lazy(() => 
   import('@/components/debug/presence-debug').then(mod => ({ default: mod.PresenceDebug }))
-);
-
-const KortixAppBanners = lazy(() => 
-  import('@/components/announcements/kortix-app-banners').then(mod => ({ default: mod.KortixAppBanners }))
-);
-
-const TutorialsBanner = lazy(() => 
-  import('@/components/announcements/tutorials-banner').then(mod => ({ default: mod.TutorialsBanner }))
-);
-
-const MobileAppInterstitial = lazy(() => 
-  import('@/components/announcements/mobile-app-interstitial').then(mod => ({ default: mod.MobileAppInterstitial }))
 );
 
 const TechnicalIssueBanner = lazy(() => 
@@ -239,10 +223,6 @@ export default function DashboardLayoutContent({
           </Suspense>
         )}
         
-        {/* Site-wide promo banner for free tier users */}
-        <Suspense fallback={null}>
-          <DashboardPromoBanner />
-        </Suspense>
         <Suspense fallback={null}>
           <AnnouncementDialog />
         </Suspense>
@@ -255,20 +235,6 @@ export default function DashboardLayoutContent({
         <Suspense fallback={null}>
           <PresentationViewerWrapper />
         </Suspense>
-        {/* Kortix App announcement banners */}
-        <Suspense fallback={null}>
-          <KortixAppBanners disableMobileAdvertising={featureFlags.disableMobileAdvertising} />
-        </Suspense>
-        {/* Tutorials banner for new users */}
-        <Suspense fallback={null}>
-          <TutorialsBanner />
-        </Suspense>
-        {/* Mobile app install interstitial - shown on actual mobile devices */}
-        {!featureFlags.disableMobileAdvertising ? (
-          <Suspense fallback={null}>
-            <MobileAppInterstitial />
-          </Suspense>
-        ) : null}
       </div>
     </AppProviders>
     </NovuInboxProvider>

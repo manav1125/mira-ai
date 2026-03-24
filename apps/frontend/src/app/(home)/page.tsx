@@ -1,15 +1,9 @@
 'use client';
 
-import { Suspense, lazy } from 'react';
 import Link from 'next/link';
 import { BackgroundAALChecker } from '@/components/auth/background-aal-checker';
 import { HeroSection as NewHeroSection } from '@/components/home/hero-section';
 import { SimpleFooter } from '@/components/home/simple-footer';
-
-// Lazy load components
-const MobileAppInterstitial = lazy(() =>
-  import('@/components/announcements/mobile-app-interstitial').then(mod => ({ default: mod.MobileAppInterstitial }))
-);
 
 const homeCards = [
   {
@@ -81,11 +75,6 @@ export default function Home() {
         </section>
 
         <SimpleFooter />
-
-        {/* Mobile app banner - shown on mobile devices for logged-in users */}
-        <Suspense fallback={null}>
-          <MobileAppInterstitial />
-        </Suspense>
       </div>
     </BackgroundAALChecker>
   );
