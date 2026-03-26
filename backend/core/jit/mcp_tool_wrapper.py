@@ -309,17 +309,24 @@ class MCPToolExecutor:
                 "Composio integrations are temporarily disabled for runs without an authenticated user context."
             )
 
-        client = await db.client
-        result = await client.schema('basejump').table('accounts').select(
-            'id, personal_account, primary_owner_user_id'
-        ).eq('id', self.account_id).limit(1).execute()
+        from core.services.db import execute_one
 
-        if not result.data:
+        result = await execute_one(
+            """
+            SELECT id, personal_account, primary_owner_user_id
+            FROM basejump.accounts
+            WHERE id = :account_id
+            LIMIT 1
+            """,
+            {"account_id": self.account_id},
+        )
+
+        if not result:
             if str(self.account_id) == str(self.requesting_user_id):
                 return
             raise PermissionError("Unable to verify Composio account ownership for this run.")
 
-        account = result.data[0]
+        account = dict(result)
         if not account.get('personal_account'):
             raise PermissionError(
                 "Composio integrations are temporarily disabled for shared accounts while per-user isolation is being fixed."
