@@ -13,10 +13,27 @@ from core.utils.sandbox_utils import normalize_preview_url
 
 from core.api_models import CreateThreadResponse, MessageCreateRequest
 from core.services.supabase import DBConnection
+from core.services.api_keys_api import get_account_id_from_user_id
 
 db = DBConnection()
 
 router = APIRouter(tags=["threads"])
+
+
+async def resolve_primary_account_id(user_id: str) -> str:
+    """Prefer the user's personal account, but keep legacy user-scoped flows working."""
+    try:
+        return str(await get_account_id_from_user_id(user_id))
+    except HTTPException as exc:
+        logger.warning(
+            f"Falling back to legacy user_id for thread account resolution: {user_id} "
+            f"(status={exc.status_code})"
+        )
+    except Exception as exc:
+        logger.warning(
+            f"Falling back to legacy user_id for thread account resolution: {user_id} ({exc})"
+        )
+    return user_id
 
 
 @router.get("/threads/search", summary="Search Threads", operation_id="search_threads")
@@ -105,8 +122,14 @@ async def get_user_threads(
 
     logger.debug(f"Fetching threads for user: {user_id} (page={page}, limit={limit})")
     try:
+        account_id = await resolve_primary_account_id(user_id)
         offset = (page - 1) * limit
-        threads, total_count = await repo_list_threads(user_id, limit, offset)
+        threads, total_count = await repo_list_threads(
+            user_id=user_id,
+            account_ids=[account_id] if account_id != user_id else [],
+            limit=limit,
+            offset=offset,
+        )
 
         if total_count == 0:
             logger.debug(f"No threads found for user: {user_id}")
@@ -117,7 +140,7 @@ async def get_user_threads(
         if threads:
             try:
                 from core.threads.thread_search import embed_unembedded_threads
-                asyncio.create_task(embed_unembedded_threads(user_id, threads))
+                asyncio.create_task(embed_unembedded_threads(account_id, threads))
             except Exception as e:
                 logger.debug(f"Failed to start background embedding task: {e}")
 
@@ -260,12 +283,13 @@ async def create_thread_in_project(
     
     logger.debug(f"Creating new thread in project: {project_id}")
     client = await db.client
-    account_id = user_id
     
     try:
-        project = await get_project_access(project_id, account_id)
+        project = await get_project_access(project_id, user_id)
         if not project:
             raise HTTPException(status_code=404, detail="Project not found or access denied")
+
+        account_id = str(project.get("account_id") or await resolve_primary_account_id(user_id))
         
         if config.ENV_MODE != EnvMode.LOCAL:
             from core.agents.pipeline.slot_manager import check_thread_limit
@@ -531,7 +555,7 @@ async def create_thread(
         name = "New Project"
     logger.debug(f"Creating new thread with name: {name}")
     client = await db.client
-    account_id = user_id
+    account_id = await resolve_primary_account_id(user_id)
     
     try:
         if config.ENV_MODE != EnvMode.LOCAL:

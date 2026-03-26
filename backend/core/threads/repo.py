@@ -14,10 +14,13 @@ def _sanitize_null_bytes(value: Any) -> Any:
     return value
 
 async def list_user_threads(
-    account_id: str,
+    user_id: str,
+    account_ids: Optional[List[str]] = None,
     limit: int = 100,
     offset: int = 0
 ) -> Tuple[List[Dict[str, Any]], int]:
+    account_ids = list(dict.fromkeys(account_ids or []))
+
     sql = """
     SELECT 
         t.thread_id,
@@ -41,13 +44,22 @@ async def list_user_threads(
     FROM threads t
     LEFT JOIN projects p ON t.project_id = p.project_id
     LEFT JOIN resources r ON p.sandbox_resource_id = r.id
-    WHERE t.account_id = :account_id
+    WHERE (
+        t.account_id = :user_id
+        OR t.account_id = ANY(CAST(:account_ids AS uuid[]))
+        OR EXISTS (
+            SELECT 1
+            FROM basejump.account_user au
+            WHERE au.account_id = t.account_id AND au.user_id = :user_id
+        )
+    )
     ORDER BY t.created_at DESC
     LIMIT :limit OFFSET :offset
     """
     
     rows = await execute(sql, {
-        "account_id": account_id,
+        "user_id": user_id,
+        "account_ids": account_ids,
         "limit": limit,
         "offset": offset
     })

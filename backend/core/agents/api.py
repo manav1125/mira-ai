@@ -30,6 +30,7 @@ from core.services import redis
 from core.ai_models import model_manager
 from core.api_models import UnifiedAgentStartResponse
 from core.services.supabase import DBConnection
+from core.services.api_keys_api import get_account_id_from_user_id
 
 # Import from new modules
 from core.agents.runner import execute_agent_run
@@ -44,6 +45,21 @@ _cancellation_events: Dict[str, asyncio.Event] = {}
 # ============================================================================
 # Helper Functions
 # ============================================================================
+
+async def _resolve_primary_account_id(user_id: str) -> str:
+    """Prefer the user's personal account while preserving legacy user-scoped flows."""
+    try:
+        return str(await get_account_id_from_user_id(user_id))
+    except HTTPException as exc:
+        logger.warning(
+            f"Falling back to legacy user_id for agent account resolution: {user_id} "
+            f"(status={exc.status_code})"
+        )
+    except Exception as exc:
+        logger.warning(
+            f"Falling back to legacy user_id for agent account resolution: {user_id} ({exc})"
+        )
+    return user_id
 
 async def _get_agent_run_with_access_check(agent_run_id: str, user_id: str, require_write_access: bool = False):
     """Get agent run with access check."""
@@ -784,7 +800,7 @@ async def unified_agent_start(
     user_id: str = Depends(verify_and_get_user_id_from_jwt)
 ):
     client = await db.client
-    account_id = user_id
+    account_id = await _resolve_primary_account_id(user_id)
     is_optimistic = optimistic and optimistic.lower() == 'true'
     
     if is_optimistic:

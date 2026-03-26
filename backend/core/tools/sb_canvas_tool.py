@@ -260,10 +260,23 @@ class SandboxCanvasTool(SandboxToolsBase):
             canvas_path = f"{self.canvases_dir}/{safe_name}.kanvax"
             full_path = f"{self.workspace_path}/{canvas_path}"
 
-            # Check if canvas already exists
+            # Treat existing canvases as a successful no-op so agent retries
+            # don't derail the broader media workflow.
             try:
-                await self.sandbox.fs.download_file(full_path)
-                return self.fail_response(f"Canvas '{name}' already exists at {canvas_path}")
+                existing_content = await self.sandbox.fs.download_file(full_path)
+                existing_data = json.loads(
+                    existing_content.decode() if isinstance(existing_content, bytes) else existing_content
+                )
+                result = {
+                    "canvas_name": existing_data.get("name") or name,
+                    "canvas_path": canvas_path,
+                    "background": existing_data.get("background", background),
+                    "description": existing_data.get("description") or description or "",
+                    "total_elements": len(existing_data.get("elements", [])),
+                    "sandbox_id": self.sandbox_id,
+                    "message": f"Canvas '{name}' already exists at {canvas_path}"
+                }
+                return self.success_response(result)
             except:
                 pass  # File doesn't exist, continue
 
