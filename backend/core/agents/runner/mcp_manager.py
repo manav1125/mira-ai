@@ -73,7 +73,11 @@ class MCPManager:
         if not all_mcps:
             return None
         
-        mcp_wrapper_instance = MCPToolWrapper(mcp_configs=all_mcps, account_id=self.account_id)
+        mcp_wrapper_instance = MCPToolWrapper(
+            mcp_configs=all_mcps,
+            account_id=self.account_id,
+            requesting_user_id=getattr(self.thread_manager, 'requesting_user_id', None),
+        )
         try:
             await mcp_wrapper_instance.initialize_and_register_tools()
             

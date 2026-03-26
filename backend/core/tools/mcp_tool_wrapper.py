@@ -100,7 +100,13 @@ _redis_cache = MCPSchemaRedisCache(ttl_seconds=3600)
     visible=False
 )
 class MCPToolWrapper(Tool):
-    def __init__(self, mcp_configs: Optional[List[Dict[str, Any]]] = None, use_cache: bool = True, account_id: str = None):
+    def __init__(
+        self,
+        mcp_configs: Optional[List[Dict[str, Any]]] = None,
+        use_cache: bool = True,
+        account_id: str = None,
+        requesting_user_id: str = None,
+    ):
         self.mcp_manager = mcp_service
         self.mcp_configs = mcp_configs or []
         self._initialized = False
@@ -109,6 +115,7 @@ class MCPToolWrapper(Tool):
         self._custom_tools = {}
         self.use_cache = use_cache
         self.account_id = account_id
+        self.requesting_user_id = requesting_user_id
 
         self.connection_manager = MCPConnectionManager()
         self.custom_handler = CustomMCPHandler(self.connection_manager, account_id=self.account_id)
@@ -261,7 +268,12 @@ class MCPToolWrapper(Tool):
             
             self._custom_tools = custom_tools
             
-            self.tool_executor = MCPToolExecutor(custom_tools, self, account_id=self.account_id)
+            self.tool_executor = MCPToolExecutor(
+                custom_tools,
+                self,
+                account_id=self.account_id,
+                requesting_user_id=self.requesting_user_id,
+            )
             
             dynamic_methods = self.tool_builder.create_dynamic_methods(
                 available_tools, 

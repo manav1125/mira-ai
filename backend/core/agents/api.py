@@ -335,6 +335,7 @@ async def start_agent_run(
     emit_timing: bool = False,
     mode: Optional[str] = None,
     files_data: Optional[List[Tuple[str, bytes, str, Optional[str]]]] = None,
+    requesting_user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     from core.agents.config import load_agent_config_fast
     from core.agents.pipeline.slot_manager import (
@@ -721,6 +722,7 @@ async def _background_setup_and_execute(
                     model_name=effective_model,
                     agent_config=agent_config,
                     account_id=account_id,
+                    requesting_user_id=requesting_user_id,
                     cancellation_event=cancellation_event,
                     is_new_thread=is_new_thread,
                     user_message=final_message_content,
@@ -872,6 +874,7 @@ async def unified_agent_start(
             emit_timing=emit_timing,
             mode=mode,
             files_data=files_data if files_data else None,
+            requesting_user_id=user_id,
         )
         
         response = {
