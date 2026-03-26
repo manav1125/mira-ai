@@ -11,8 +11,10 @@ import asyncio
 import logging
 import time
 import base64
+import re
 import replicate
 import httpx
+from html import unescape
 from urllib.parse import quote_plus, urlparse, parse_qs, unquote
 
 # TODO: add subpages, etc... in filters as sometimes its necessary 
@@ -115,7 +117,7 @@ class SandboxWebSearchTool(SandboxToolsBase):
         if not self.tavily_api_key:
             logging.warning("TAVILY_API_KEY not configured - Web Search Tool will not be available")
         if not self.firecrawl_api_key:
-            logging.warning("FIRECRAWL_API_KEY not configured - Web Scraping Tool will not be available")
+            logging.warning("FIRECRAWL_API_KEY not configured - Web Scraping Tool will use HTTP fallback")
 
         # Tavily asynchronous search client
         self.tavily_client = AsyncTavilyClient(api_key=self.tavily_api_key) if self.tavily_api_key else None
@@ -648,10 +650,6 @@ IMPORTANT: You should ALWAYS collect multiple relevant URLs from web-search resu
         - include_html: Whether to include full HTML content alongside markdown (default: False)
         """
         try:
-            # Check if Firecrawl API key is configured
-            if not self.firecrawl_api_key:
-                return self.fail_response("Web Scraping is not available. FIRECRAWL_API_KEY is not configured.")
-            
             logging.info(f"Starting to scrape webpages: {urls}")
             
             # Ensure sandbox is initialized
@@ -747,53 +745,7 @@ IMPORTANT: You should ALWAYS collect multiple relevant URLs from web-search resu
         logging.info(f"Scraping single URL: {url}")
         
         try:
-            # ---------- Firecrawl scrape endpoint ----------
-            logging.info(f"Sending request to Firecrawl for URL: {url}")
-            async with get_http_client() as client:
-                headers = {
-                    "Authorization": f"Bearer {self.firecrawl_api_key}",
-                    "Content-Type": "application/json",
-                }
-                # Determine formats to request based on include_html flag
-                formats = ["markdown"]
-                if include_html:
-                    formats.append("html")
-                
-                payload = {
-                    "url": url,
-                    "formats": formats
-                }
-                
-                # Use longer timeout and retry logic for more reliability
-                max_retries = 3
-                timeout_seconds = 30
-                retry_count = 0
-                
-                while retry_count < max_retries:
-                    try:
-                        logging.info(f"Sending request to Firecrawl (attempt {retry_count + 1}/{max_retries})")
-                        response = await client.post(
-                            f"{self.firecrawl_url}/v1/scrape",
-                            json=payload,
-                            headers=headers,
-                            timeout=timeout_seconds,
-                        )
-                        response.raise_for_status()
-                        data = response.json()
-                        logging.info(f"Successfully received response from Firecrawl for {url}")
-                        break
-                    except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.ReadError) as timeout_err:
-                        retry_count += 1
-                        logging.warning(f"Request timed out (attempt {retry_count}/{max_retries}): {str(timeout_err)}")
-                        if retry_count >= max_retries:
-                            raise Exception(f"Request timed out after {max_retries} attempts with {timeout_seconds}s timeout")
-                        # Exponential backoff
-                        logging.info(f"Waiting {2 ** retry_count}s before retry")
-                        await asyncio.sleep(2 ** retry_count)
-                    except Exception as e:
-                        # Don't retry on non-timeout errors
-                        logging.error(f"Error during scraping: {str(e)}")
-                        raise e
+            data = await self._fetch_scrape_data(url, include_html)
 
             # Format the response
             title = data.get("data", {}).get("metadata", {}).get("title", "")
@@ -863,6 +815,107 @@ IMPORTANT: You should ALWAYS collect multiple relevant URLs from web-search resu
                 "success": False,
                 "error": error_message
             }
+
+    async def _fetch_scrape_data(self, url: str, include_html: bool) -> dict:
+        if self.firecrawl_api_key:
+            return await self._scrape_with_firecrawl(url, include_html)
+
+        logging.info(f"Using direct HTTP scrape fallback for URL: {url}")
+        return await self._scrape_with_http_fallback(url, include_html)
+
+    async def _scrape_with_firecrawl(self, url: str, include_html: bool) -> dict:
+        logging.info(f"Sending request to Firecrawl for URL: {url}")
+        async with get_http_client() as client:
+            headers = {
+                "Authorization": f"Bearer {self.firecrawl_api_key}",
+                "Content-Type": "application/json",
+            }
+            formats = ["markdown"]
+            if include_html:
+                formats.append("html")
+
+            payload = {
+                "url": url,
+                "formats": formats
+            }
+
+            max_retries = 3
+            timeout_seconds = 30
+            retry_count = 0
+
+            while retry_count < max_retries:
+                try:
+                    logging.info(f"Sending request to Firecrawl (attempt {retry_count + 1}/{max_retries})")
+                    response = await client.post(
+                        f"{self.firecrawl_url}/v1/scrape",
+                        json=payload,
+                        headers=headers,
+                        timeout=timeout_seconds,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    logging.info(f"Successfully received response from Firecrawl for {url}")
+                    return data
+                except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.ReadError) as timeout_err:
+                    retry_count += 1
+                    logging.warning(f"Request timed out (attempt {retry_count}/{max_retries}): {str(timeout_err)}")
+                    if retry_count >= max_retries:
+                        raise Exception(f"Request timed out after {max_retries} attempts with {timeout_seconds}s timeout")
+                    logging.info(f"Waiting {2 ** retry_count}s before retry")
+                    await asyncio.sleep(2 ** retry_count)
+                except Exception as e:
+                    logging.error(f"Error during scraping: {str(e)}")
+                    raise e
+
+        raise Exception("Firecrawl scraping failed without returning data")
+
+    async def _scrape_with_http_fallback(self, url: str, include_html: bool) -> dict:
+        async with get_http_client() as client:
+            response = await client.get(
+                url,
+                follow_redirects=True,
+                timeout=30,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; SunaBot/1.0; +https://suna.so)"
+                },
+            )
+            response.raise_for_status()
+            html = response.text
+
+        title_match = re.search(r"<title[^>]*>(.*?)</title>", html, flags=re.IGNORECASE | re.DOTALL)
+        title = self._clean_html_text(title_match.group(1)) if title_match else url
+        markdown_content = self._html_to_text(html)
+
+        data = {
+            "data": {
+                "markdown": markdown_content,
+                "metadata": {
+                    "title": title,
+                    "source": "http_fallback",
+                },
+            }
+        }
+        if include_html:
+            data["data"]["html"] = html
+        return data
+
+    def _html_to_text(self, html: str) -> str:
+        html = re.sub(r"(?is)<script.*?>.*?</script>", " ", html)
+        html = re.sub(r"(?is)<style.*?>.*?</style>", " ", html)
+        html = re.sub(r"(?is)<noscript.*?>.*?</noscript>", " ", html)
+        html = re.sub(r"(?i)<br\\s*/?>", "\n", html)
+        html = re.sub(r"(?i)</(p|div|section|article|li|h1|h2|h3|h4|h5|h6|tr)>", "\n", html)
+        text = re.sub(r"(?is)<[^>]+>", " ", html)
+        text = self._clean_html_text(text)
+        return text[:50000]
+
+    def _clean_html_text(self, text: str) -> str:
+        text = unescape(text or "")
+        text = text.replace("\r", "")
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        text = re.sub(r"[ \t]+", " ", text)
+        text = re.sub(r" *\n *", "\n", text)
+        return text.strip()
 
 
 if __name__ == "__main__":
