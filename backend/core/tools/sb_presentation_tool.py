@@ -1252,6 +1252,7 @@ class SandboxPresentationTool(SandboxToolsBase):
         # Preserve well-known template framing while replacing placeholder copy.
         assign_selectors([".brand"], [branding["brand"]])
         assign_selectors([".company-name"], [branding["brand"]], fallback_hide=False)
+        assign_selectors([".logo-text"], [branding["brand"]], fallback_hide=False)
         assign_selectors([".year"], [branding["year"]])
         assign_selectors([".website"], [branding["domain"]], fallback_hide=not bool(branding["domain"]))
         assign_selectors([".slide-number", ".section-number"], [str(slide_number)])
@@ -1264,10 +1265,26 @@ class SandboxPresentationTool(SandboxToolsBase):
                 ".franchise-title",
                 ".title-business",
                 ".title-enterprise",
+                ".b2c-heading",
+                ".stat-label",
+                ".funding-title",
+                ".subheading",
+                ".card-label",
+                ".card-name",
+                ".option-heading",
+                ".event-label",
+                ".time-label",
             ],
             [title_text, self._shorten_template_label(lead_text, fallback=title_text)],
             fallback_hide=False,
         )
+
+        if metric_cards:
+            assign_selectors(
+                [".statistic", ".number"],
+                [metric_cards[0]["display"]],
+                fallback_hide=False,
+            )
 
         cards = soup.select(".card")
         if cards:
@@ -1333,8 +1350,28 @@ class SandboxPresentationTool(SandboxToolsBase):
                 ".overlay-text",
                 ".text-box p",
                 ".item-content",
+                ".description",
+                ".b2c-description",
+                ".stat-description",
+                ".franchise-description",
+                ".description-box",
+                ".description-white",
+                ".sub-description",
+                ".option-description",
+                ".card-description",
+                ".waitlist-text",
             ],
             [next_body() for _ in range(12)],
+        )
+
+        assign_selectors(
+            [
+                ".checklist-text",
+                ".item-description",
+                ".list-item",
+            ],
+            key_points + supporting + metrics + [lead_text],
+            fallback_hide=True,
         )
 
         # Replace any lingering placeholder nodes with remaining researched content.
@@ -2699,7 +2736,7 @@ class SandboxPresentationTool(SandboxToolsBase):
         "type": "function",
         "function": {
             "name": "create_slide",
-            "description": "Create or update a single slide in a presentation. **WHEN TO USE**: Use this for both custom-theme decks and template-initialized decks. If a template was initialized via load_template_design with presentation_name, this tool should preserve the copied template's framework/layout while replacing the content with researched slide material. **WHEN TO SKIP**: Only skip this if you explicitly need exact DOM-preserving edits inside the copied template, in which case use populate_template_slide. **PARALLEL EXECUTION**: This function supports parallel execution - create ALL slides simultaneously by using create_slide multiple times in parallel for much faster completion. Each slide is saved as a standalone HTML file with 1920x1080 dimensions (16:9 aspect ratio). Slides are automatically validated to ensure both width (≤1920px) and height (≤1080px) limits are met. Use `box-sizing: border-box` on containers with padding to prevent dimension overflow. **CRITICAL**: You MUST have completed research, outline, and visual planning before using this tool. All styling MUST be derived from the custom color scheme/design elements or the initialized template design system. **IMAGE RULE**: Do not hotlink public internet image URLs directly in slide HTML - download them into presentations/images/ first. If the user asks for no images, create the slide without visuals instead of calling canvas tools. **PRESENTATION DESIGN NOT WEBSITE**: Use fixed pixel dimensions, absolute positioning, and fixed layouts - NO responsive design patterns. **BEST INPUT FORMAT**: Prefer a research-backed slide brief with a clear thesis, 3-5 evidence bullets, 1-3 metrics/facts, and a visual brief; the tool can auto-render that into a polished slide. **🚨 PARAMETER NAMES**: Use EXACTLY these parameter names: `presentation_name` (REQUIRED), `slide_number` (REQUIRED), `slide_title` (REQUIRED), `content` (REQUIRED), `presentation_title` (optional). **❌ DO NOT USE**: `file_path` - this parameter does NOT exist!",
+            "description": "Create or update a single slide in a presentation. **WHEN TO USE**: Use this for both custom-theme decks and template-initialized decks. If a template was initialized via load_template_design with presentation_name, this tool should preserve the copied template's framework/layout while replacing the content with researched slide material. **WHEN TO SKIP**: Only skip this if you explicitly need exact DOM-preserving edits inside the copied template, in which case use populate_template_slide. **PARALLEL EXECUTION**: This function supports parallel execution - create ALL slides simultaneously by using create_slide multiple times in parallel for much faster completion. Each slide is saved as a standalone HTML file with 1920x1080 dimensions (16:9 aspect ratio). Slides are automatically validated to ensure both width (≤1920px) and height (≤1080px) limits are met. Use `box-sizing: border-box` on containers with padding to prevent dimension overflow. **CRITICAL**: You MUST have completed research, outline, and visual planning before using this tool. All styling MUST be derived from the custom color scheme/design elements or the initialized template design system. **IMAGE RULE**: Do not hotlink public internet image URLs directly in slide HTML - download them into presentations/images/ first. If the user asks for no images, create the slide without visuals instead of calling canvas tools. **PRESENTATION DESIGN NOT WEBSITE**: Use fixed pixel dimensions, absolute positioning, and fixed layouts - NO responsive design patterns. **BEST INPUT FORMAT**: Prefer a structured slide brief that uses explicit labels the renderer can map into the template: `Title:`, `Kicker:`, `Thesis:`, `Evidence:`, `Metrics:`, and `Visual brief:`. Keep it research-backed, specific, and presentation-ready rather than generic instructions. **🚨 PARAMETER NAMES**: Use EXACTLY these parameter names: `presentation_name` (REQUIRED), `slide_number` (REQUIRED), `slide_title` (REQUIRED), `content` (REQUIRED), `presentation_title` (optional). **❌ DO NOT USE**: `file_path` - this parameter does NOT exist!",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -2717,7 +2754,7 @@ class SandboxPresentationTool(SandboxToolsBase):
                     },
                     "content": {
                         "type": "string",
-                        "description": """**REQUIRED** - Either (A) HTML body content only (DO NOT include <!DOCTYPE>, <html>, <head>, or <body> tags - these are added automatically), or (B) a structured research-backed slide brief in plain text/markdown. Best results come from briefs that include: a thesis sentence, 3-5 evidence bullets, 1-3 metrics/facts, and a visual brief tied to the subject. The tool can auto-render those briefs into polished slides. If you do provide HTML, include your content with inline CSS or <style> blocks. Design for 1920x1080 resolution. Google Fonts (Inter) is pre-loaded for typography. D3.js and Chart.js are available asynchronously (won't block page load) - use them if needed, but pure CSS/HTML is recommended for static presentations. For icons, use emoji (📊 📈 💡 🚀 ⚡ 🎯) or Unicode symbols instead of icon libraries.
+                        "description": """**REQUIRED** - Either (A) HTML body content only (DO NOT include <!DOCTYPE>, <html>, <head>, or <body> tags - these are added automatically), or (B) a structured research-backed slide brief in plain text/markdown. Best results come from briefs that explicitly use labels like `Title:`, `Kicker:`, `Thesis:`, `Evidence:`, `Metrics:`, and `Visual brief:` so the renderer can map your research into the selected template. The tool can auto-render those briefs into polished slides. If you do provide HTML, include your content with inline CSS or <style> blocks. Design for 1920x1080 resolution. Google Fonts (Inter) is pre-loaded for typography. D3.js and Chart.js are available asynchronously (won't block page load) - use them if needed, but pure CSS/HTML is recommended for static presentations. For icons, use emoji (📊 📈 💡 🚀 ⚡ 🎯) or Unicode symbols instead of icon libraries.
                         
                         **🚨 IMPORTANT - Pre-configured Body Styles**: The slide template ALREADY includes base body styling in the <head>:
                         ```
