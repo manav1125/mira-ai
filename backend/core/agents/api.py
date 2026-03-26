@@ -567,6 +567,7 @@ async def start_agent_run(
         memory_enabled=memory_enabled,
         is_new_thread=is_new_thread,
         mode=mode,
+        requesting_user_id=requesting_user_id,
         cancellation_event=cancellation_event,
         skip_limits_check=skip_limits_check,
     ))
@@ -593,6 +594,7 @@ async def _background_setup_and_execute(
     memory_enabled: Optional[bool],
     is_new_thread: bool,
     mode: Optional[str],
+    requesting_user_id: Optional[str],
     cancellation_event: asyncio.Event,
     skip_limits_check: bool = False,
 ):
@@ -744,10 +746,20 @@ async def _background_setup_and_execute(
         except asyncio.CancelledError:
             final_status = "cancelled"
             cleanup_reason = "Task cancelled"
+            try:
+                from core.agents.runner import update_agent_run_status
+                await update_agent_run_status(agent_run_id, "stopped", error=cleanup_reason, account_id=account_id)
+            except Exception as e:
+                logger.warning(f"[LIFECYCLE] Failed to update status on cancellation: {e}")
         except Exception as e:
             final_status = "failed"
             cleanup_reason = f"{type(e).__name__}: {str(e)[:100]}"
             logger.error(f"[LIFECYCLE] EXCEPTION agent_run={agent_run_id} error={cleanup_reason}")
+            try:
+                from core.agents.runner import update_agent_run_status
+                await update_agent_run_status(agent_run_id, "failed", error=cleanup_reason, account_id=account_id)
+            except Exception as update_err:
+                logger.warning(f"[LIFECYCLE] Failed to update status on exception: {update_err}")
         finally:
             try:
                 from core.agents.pipeline.slot_manager import release_slot
