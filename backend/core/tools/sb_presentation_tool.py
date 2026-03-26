@@ -459,10 +459,14 @@ class SandboxPresentationTool(SandboxToolsBase):
             "brightpath",
             "yourwebsite.org",
             "lorem ipsum",
+            "lorem dolor sit amet",
+            "lorem dolor",
             "slidekit",
             "presentation system 2025",
             "elevator pitch template",
             "elevator pitch example",
+            "description in here",
+            "graphic designs",
         ]
         placeholder_hits = [marker for marker in placeholder_markers if marker in lowered]
         if placeholder_hits:
@@ -475,7 +479,7 @@ class SandboxPresentationTool(SandboxToolsBase):
         instruction_patterns = {
             "example copy": r"\bexample\s*:",
             "generic instruction": r"\b(?:this slide|in this section|could include|should include)\b",
-            "placeholder investor phrasing": r"\b(?:highlight key|your startup|your company|relevant achievements)\b",
+            "placeholder investor phrasing": r"\b(?:your startup|your company|relevant achievements)\b",
         }
         for label, pattern in instruction_patterns.items():
             if re.search(pattern, lowered):
@@ -1033,8 +1037,29 @@ class SandboxPresentationTool(SandboxToolsBase):
             "in this project, we will design and ship a new brand design system",
             "we'll define the primary goal of the project",
             "gradient background",
+            "description in here",
+            "graphic designs",
+            "lorem dolor sit amet",
+            "lorem dolor",
         ]
         return any(marker in normalized for marker in placeholder_markers) or self._is_instruction_like_text(normalized)
+
+    def _rendered_template_needs_fallback(self, rendered_html: str) -> bool:
+        soup = BeautifulSoup(rendered_html or "", "html.parser")
+        placeholder_hits = 0
+        meaningful_text = 0
+
+        for node in soup.stripped_strings:
+            text = re.sub(r"\s+", " ", str(node or "").strip())
+            if not text:
+                continue
+            if self._is_template_placeholder_text(text):
+                placeholder_hits += 1
+                continue
+            if len(text) >= 8:
+                meaningful_text += 1
+
+        return placeholder_hits >= 2 or meaningful_text < 3
 
     def _should_omit_slide_visual(self, slide_content: str, semantics: Dict[str, object]) -> bool:
         haystacks = [
@@ -1193,6 +1218,7 @@ class SandboxPresentationTool(SandboxToolsBase):
         supporting = [self._truncate_template_copy(str(item), 180) for item in semantics.get("supporting", []) if item]
         key_points = [self._truncate_template_copy(str(item), 120) for item in semantics.get("key_points", []) if item]
         metrics = [self._truncate_template_copy(str(item), 120) for item in semantics.get("metrics", []) if item]
+        metric_cards = self._build_metric_cards(metrics)
 
         title_labels = [title_text] + [self._shorten_template_label(item) for item in (key_points + metrics + supporting)]
         body_copy = [lead_text] + supporting + key_points + metrics
@@ -1229,18 +1255,52 @@ class SandboxPresentationTool(SandboxToolsBase):
         assign_selectors([".year"], [branding["year"]])
         assign_selectors([".website"], [branding["domain"]], fallback_hide=not bool(branding["domain"]))
         assign_selectors([".slide-number", ".section-number"], [str(slide_number)])
+        assign_selectors(
+            [
+                ".main-title",
+                ".main-heading",
+                ".section-title",
+                ".item-title",
+                ".franchise-title",
+                ".title-business",
+                ".title-enterprise",
+            ],
+            [title_text, self._shorten_template_label(lead_text, fallback=title_text)],
+            fallback_hide=False,
+        )
 
         cards = soup.select(".card")
         if cards:
             card_items = key_points or supporting or metrics or [lead_text]
             for index, card in enumerate(cards):
                 item = card_items[index] if index < len(card_items) else ""
+                metric_card = metric_cards[index] if index < len(metric_cards) else None
+                number_el = card.select_one(".card-number")
                 title_el = card.select_one(".card-title")
                 text_el = card.select_one(".card-text")
+                if number_el:
+                    display_value = metric_card["display"] if metric_card else f"{index + 1:02d}"
+                    self._set_element_text(number_el, display_value)
                 if title_el:
-                    self._set_element_text(title_el, self._shorten_template_label(item or f"Point {index + 1}", fallback=f"Point {index + 1}"))
+                    label_source = metric_card["label"] if metric_card else item
+                    self._set_element_text(title_el, self._shorten_template_label(label_source or f"Point {index + 1}", fallback=f"Point {index + 1}"))
                 if text_el:
-                    self._set_element_text(text_el, self._truncate_template_copy(item or lead_text, 140))
+                    body_source = metric_card["label"] if metric_card else item or lead_text
+                    self._set_element_text(text_el, self._truncate_template_copy(body_source, 140))
+
+        info_cards = soup.select(".info-card")
+        if info_cards:
+            card_items = metric_cards or [{"display": f"{idx + 1:02d}", "label": point} for idx, point in enumerate(key_points[: len(info_cards)] or supporting[: len(info_cards)] or [lead_text])]
+            for index, card in enumerate(info_cards):
+                item = card_items[index] if index < len(card_items) else None
+                if not item:
+                    continue
+                number_el = card.select_one(".card-number")
+                text_el = card.select_one(".card-text")
+                if number_el:
+                    self._set_element_text(number_el, item.get("display") or f"{index + 1:02d}")
+                if text_el:
+                    self._set_element_text(text_el, self._shorten_template_label(item.get("label") or lead_text, fallback=f"Point {index + 1}"))
 
         index_items = soup.select(".index-item")
         if index_items:
@@ -1267,11 +1327,14 @@ class SandboxPresentationTool(SandboxToolsBase):
                 ".purple-box-title",
                 ".purple-box-text",
                 ".text-paragraph",
+                ".section-paragraph",
                 ".top-text-box",
                 ".section-description",
                 ".overlay-text",
+                ".text-box p",
+                ".item-content",
             ],
-            [next_body() for _ in range(8)],
+            [next_body() for _ in range(12)],
         )
 
         # Replace any lingering placeholder nodes with remaining researched content.
@@ -2834,7 +2897,19 @@ class SandboxPresentationTool(SandboxToolsBase):
                         omit_visual=omit_visual,
                     )
                     if rendered_template_content:
-                        final_content = rendered_template_content
+                        if self._rendered_template_needs_fallback(rendered_template_content):
+                            final_content = await self._apply_visual_baseline(
+                                slide_content=content,
+                                slide_title=slide_title,
+                                presentation_name=presentation_name,
+                                presentation_title=effective_presentation_title,
+                                slide_number=slide_number,
+                                theme_context=theme_context,
+                                semantics=semantics,
+                                omit_visual=omit_visual,
+                            )
+                        else:
+                            final_content = rendered_template_content
                     else:
                         final_content = await self._apply_visual_baseline(
                             slide_content=content,
