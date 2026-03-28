@@ -199,10 +199,13 @@ class RedisClient:
     def _get_config(self) -> Dict[str, Any]:
         load_dotenv()
 
+        # Prefer private/internal connection strings before generic/public URLs.
+        # On Render, REDIS_URL may point at the external endpoint while
+        # REDIS_INTERNAL_URL / REDIS_PRIVATE_URL stays on the private network.
         redis_url = (
-            os.getenv("REDIS_URL")
-            or os.getenv("REDIS_PRIVATE_URL")
+            os.getenv("REDIS_PRIVATE_URL")
             or os.getenv("REDIS_INTERNAL_URL")
+            or os.getenv("REDIS_URL")
             or os.getenv("REDIS_URI")
             or os.getenv("REDIS_CONNECTION_STRING")
             or os.getenv("KV_URL")
