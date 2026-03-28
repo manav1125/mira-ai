@@ -28,10 +28,23 @@ from googleapiclient.http import MediaFileUpload
 
 from core.credentials.credential_service import EncryptionService
 from core.services.supabase import DBConnection
+from core.utils.config import config
 from core.utils.logger import logger
 
 
 # ================== DATA CLASSES AND EXCEPTIONS ==================
+
+LEGACY_GOOGLE_CLIENT_ID_KEYS = ("GOOGLE_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_ID")
+LEGACY_GOOGLE_CLIENT_SECRET_KEYS = ("GOOGLE_CLIENT_SECRET", "GOOGLE_OAUTH_CLIENT_SECRET")
+LEGACY_GOOGLE_REDIRECT_URI_KEYS = ("GOOGLE_REDIRECT_URI", "GOOGLE_OAUTH_REDIRECT_URI")
+
+
+def _first_env(*keys: str) -> Optional[str]:
+    for key in keys:
+        value = os.getenv(key)
+        if value and value.strip():
+            return value
+    return None
 
 @dataclass(frozen=True)
 class OAuthToken:
@@ -53,6 +66,28 @@ class OAuthTokenNotFoundError(Exception):
 class OAuthTokenAccessDeniedError(Exception):
     """Raised when access to an OAuth token is denied."""
     pass
+
+
+def get_google_redirect_uri() -> str:
+    """Resolve a public Google OAuth callback URI for the current environment."""
+    explicit_redirect_uri = _first_env(*LEGACY_GOOGLE_REDIRECT_URI_KEYS)
+    if explicit_redirect_uri:
+        return explicit_redirect_uri
+
+    for base_url in (
+        (config.WEBHOOK_BASE_URL or "").strip(),
+        os.getenv("BACKEND_URL", "").strip(),
+        os.getenv("RENDER_EXTERNAL_URL", "").strip(),
+    ):
+        if not base_url:
+            continue
+
+        normalized_base_url = base_url.rstrip("/")
+        if normalized_base_url.endswith("/v1"):
+            return f"{normalized_base_url}/google/callback"
+        return f"{normalized_base_url}/v1/google/callback"
+
+    return "http://localhost:8000/v1/google/callback"
 
 
 # ================== OAUTH TOKEN SERVICE ==================
@@ -259,14 +294,17 @@ class GoogleSlidesService:
     
     def __init__(self, oauth_token_service: OAuthTokenService):
         """Initialize the Google Slides service with OAuth configuration."""
-        # OAuth configuration - these should be environment variables in production
-        self.client_id = os.getenv("GOOGLE_CLIENT_ID")
-        self.client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-        self.redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/v1/google/callback")
+        # Support both the current and older env var names to survive config drift.
+        self.client_id = _first_env(*LEGACY_GOOGLE_CLIENT_ID_KEYS)
+        self.client_secret = _first_env(*LEGACY_GOOGLE_CLIENT_SECRET_KEYS)
+        self.redirect_uri = get_google_redirect_uri()
         
         # Validate required credentials
         if not self.client_id or not self.client_secret:
-            logger.warning("Google OAuth credentials not configured. Set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET environment variables.")
+            logger.warning(
+                "Google OAuth credentials not configured. Set GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET "
+                "or GOOGLE_OAUTH_CLIENT_ID/GOOGLE_OAUTH_CLIENT_SECRET."
+            )
             logger.warning("Google Slides integration will not work until credentials are properly configured.")
         
         # Required OAuth scopes
@@ -278,6 +316,9 @@ class GoogleSlidesService:
         self.oauth_service = oauth_token_service
         
         logger.info("GoogleSlidesService initialized with database token storage")
+
+    def is_oauth_configured(self) -> bool:
+        return bool(self.client_id and self.client_secret)
 
     def get_auth_url(self, user_id: str, return_url: Optional[str] = None) -> str:
         """Generate Google OAuth authorization URL for a user."""

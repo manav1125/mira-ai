@@ -325,20 +325,8 @@ export async function downloadPresentation(
   presentationPath: string, 
   presentationName: string
 ): Promise<void> {
-  try {
-    const normalizedSandboxUrl = normalizeSandboxBaseUrl(sandboxUrl);
-    if (!normalizedSandboxUrl) {
-      throw new Error('Invalid sandbox URL');
-    }
+  const attemptDirectSandboxDownload = async (normalizedSandboxUrl: string) => {
     const endpoint = `${normalizedSandboxUrl}/presentation/convert-to-${format}`;
-    console.log(`[downloadPresentation] Requesting download:`, {
-      endpoint,
-      format,
-      presentationPath,
-      presentationName,
-      sandboxUrl: normalizedSandboxUrl
-    });
-
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
@@ -349,6 +337,47 @@ export async function downloadPresentation(
         download: true
       })
     });
+    return response;
+  };
+
+  try {
+    const normalizedSandboxUrl = normalizeSandboxBaseUrl(sandboxUrl);
+    if (!normalizedSandboxUrl) {
+      throw new Error('Invalid sandbox URL');
+    }
+    const accessToken = await getAuthTokenWithTimeout(8000);
+    if (!accessToken) {
+      throw new Error('Authentication required');
+    }
+
+    const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL || '/v1';
+    const endpoint = `${backendBaseUrl.replace(/\/+$/, '')}/presentation-tools/export/${format}`;
+    console.log(`[downloadPresentation] Requesting download:`, {
+      endpoint,
+      format,
+      presentationPath,
+      presentationName,
+      sandboxUrl: normalizedSandboxUrl,
+      via: 'backend-proxy',
+    });
+
+    let response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        presentation_path: presentationPath,
+        sandbox_url: normalizedSandboxUrl,
+      })
+    });
+
+    // Compatibility fallback while older backends are still deployed.
+    if (response.status === 404) {
+      console.warn('[downloadPresentation] Backend export proxy unavailable, falling back to direct sandbox download');
+      response = await attemptDirectSandboxDownload(normalizedSandboxUrl);
+    }
     
     console.log(`[downloadPresentation] Response status:`, {
       status: response.status,
@@ -471,7 +500,7 @@ export const handleGoogleAuth = async (presentationPath: string, sandboxUrl: str
     const response = await backendApi.get(`/google/auth-url?return_url=${currentUrl}`);
     
     if (!response.success) {
-      throw new Error(response.error?.message || 'Failed to get auth URL');
+      throw new Error(response.error?.message || 'Google Slides export is not configured on the backend');
     }
     
     const { auth_url } = response.data;
@@ -482,7 +511,7 @@ export const handleGoogleAuth = async (presentationPath: string, sandboxUrl: str
     }
   } catch (error) {
     console.error('Error initiating Google auth:', error);
-    toast.error('Failed to initiate Google authentication');
+    toast.error(error instanceof Error ? error.message : 'Failed to initiate Google authentication');
   }
 };
 

@@ -12,14 +12,15 @@ Endpoints:
 import os
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Literal
 from urllib.parse import unquote
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Query, Depends
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel, Field
 
-from core.utils.auth_utils import verify_and_get_user_id_from_jwt
+from core.utils.auth_utils import verify_and_get_user_id_from_jwt, verify_sandbox_access
 from core.utils.logger import logger
 from core.utils.config import config
 from core.services.supabase import DBConnection
@@ -50,6 +51,11 @@ class AuthURLResponse(BaseModel):
 class ConvertToSlidesRequest(BaseModel):
     presentation_path: str = Field(..., description="Path to the presentation in sandbox (e.g., /workspace/presentations/my-pres)")
     sandbox_url: str = Field(..., description="Sandbox URL to fetch the PPTX from")
+
+
+class PresentationExportRequest(BaseModel):
+    presentation_path: str = Field(..., description="Path to the presentation in sandbox (e.g., /workspace/presentations/my-pres)")
+    sandbox_url: str = Field(..., description="Sandbox URL to export from")
 
 
 class ConvertToSlidesResponse(BaseModel):
@@ -110,6 +116,14 @@ async def get_google_auth_url(
         OAuth consent URL that user should visit
     """
     try:
+        if not google_service.is_oauth_configured():
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Google Slides export is unavailable because Google OAuth is not configured. "
+                    "Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET on the backend."
+                ),
+            )
         auth_url = google_service.get_auth_url(user_id, return_url)
         
         return AuthURLResponse(
@@ -117,9 +131,82 @@ async def get_google_auth_url(
             message="Visit this URL to authenticate with Google"
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to generate auth URL: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _extract_sandbox_id_from_url(sandbox_url: str) -> Optional[str]:
+    uuid_regex = r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+
+    try:
+        parsed = urlparse(sandbox_url)
+        hostname = (parsed.hostname or "").lower()
+        first_label = hostname.split(".")[0] if hostname else ""
+        if first_label:
+            port_prefixed_match = first_label.split("-", 1)
+            if len(port_prefixed_match) == 2 and port_prefixed_match[0].isdigit():
+                return port_prefixed_match[1]
+            if first_label and len(first_label) >= 8:
+                return first_label
+    except Exception:
+        pass
+
+    import re
+    match = re.search(uuid_regex, sandbox_url, re.IGNORECASE)
+    return match.group(0) if match else None
+
+
+async def _proxy_presentation_export(
+    *,
+    export_format: Literal["pdf", "pptx"],
+    request: PresentationExportRequest,
+    user_id: str,
+    db: DBConnection,
+) -> Response:
+    sandbox_id = _extract_sandbox_id_from_url(request.sandbox_url)
+    if not sandbox_id:
+        raise HTTPException(status_code=400, detail="Could not resolve sandbox ID from sandbox URL")
+
+    client = await db.client
+    await verify_sandbox_access(client, sandbox_id, user_id)
+
+    async with get_http_client() as http_client:
+        export_response = await http_client.post(
+            f"{request.sandbox_url}/presentation/convert-to-{export_format}",
+            json={
+                "presentation_path": request.presentation_path,
+                "download": True,
+            },
+            timeout=180.0,
+        )
+
+    if not export_response.is_success:
+        try:
+            detail = export_response.json().get("detail", export_response.text)
+        except Exception:
+            detail = export_response.text
+        raise HTTPException(
+            status_code=export_response.status_code,
+            detail=f"{export_format.upper()} export failed: {detail}",
+        )
+
+    media_type = export_response.headers.get("content-type") or (
+        "application/pdf" if export_format == "pdf"
+        else "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    )
+    content_disposition = export_response.headers.get("Content-Disposition")
+    if not content_disposition:
+        file_name = f"{Path(request.presentation_path).name or 'presentation'}.{export_format}"
+        content_disposition = f'attachment; filename="{file_name}"'
+
+    return Response(
+        content=export_response.content,
+        media_type=media_type,
+        headers={"Content-Disposition": content_disposition},
+    )
 
 
 @oauth_router.get("/callback")
@@ -312,6 +399,21 @@ async def convert_and_upload_to_google_slides(
     except Exception as e:
         logger.error(f"Error in convert_and_upload_to_google_slides: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@presentation_router.post("/export/{export_format}")
+async def export_presentation_file(
+    export_format: Literal["pdf", "pptx"],
+    request: PresentationExportRequest,
+    user_id: str = Depends(verify_and_get_user_id_from_jwt),
+    db: DBConnection = Depends(get_db_connection),
+):
+    return await _proxy_presentation_export(
+        export_format=export_format,
+        request=request,
+        user_id=user_id,
+        db=db,
+    )
 
 
 # ================== ROUTER ASSEMBLY ==================

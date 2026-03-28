@@ -17,17 +17,26 @@ from core.services.http_client import get_http_client
 
 from core.utils.logger import logger
 
-from .google_slides_service import OAuthTokenService
+from .google_slides_service import (
+    OAuthTokenService,
+    get_google_redirect_uri,
+    _first_env,
+    LEGACY_GOOGLE_CLIENT_ID_KEYS,
+    LEGACY_GOOGLE_CLIENT_SECRET_KEYS,
+)
 
 
 class GoogleDocsService:
     def __init__(self, oauth_token_service: OAuthTokenService):
-        self.client_id = os.getenv("GOOGLE_CLIENT_ID")
-        self.client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-        self.redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/v1/google/callback")
+        self.client_id = _first_env(*LEGACY_GOOGLE_CLIENT_ID_KEYS)
+        self.client_secret = _first_env(*LEGACY_GOOGLE_CLIENT_SECRET_KEYS)
+        self.redirect_uri = get_google_redirect_uri()
         
         if not self.client_id or not self.client_secret:
-            logger.warning("Google OAuth credentials not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables.")
+            logger.warning(
+                "Google OAuth credentials not configured. Set GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET "
+                "or GOOGLE_OAUTH_CLIENT_ID/GOOGLE_OAUTH_CLIENT_SECRET."
+            )
             logger.warning("Google Docs integration will not work until credentials are properly configured.")
         
         self.scopes = [
