@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from core.utils.config import config, EnvMode
 import asyncio
 from core.utils.logger import logger, structlog
+from core.utils.config_validation import validate_runtime_configuration, should_fail_startup
 import time
 from collections import OrderedDict
 import os
@@ -84,6 +85,15 @@ async def lifespan(app: FastAPI):
     env_mode = config.ENV_MODE.value if config.ENV_MODE else "unknown"
     logger.debug(f"Starting up FastAPI application with instance ID: {instance_id} in {env_mode} mode")
     try:
+        config_report = validate_runtime_configuration()
+        if config_report["status"] != "ok":
+            logger.warning("Runtime configuration findings on startup: %s", config_report)
+        if should_fail_startup(config_report):
+            raise RuntimeError(
+                f"Refusing startup because required configuration is missing: "
+                f"{config_report['errors']}"
+            )
+
         await db.initialize()
         
         from core.services.db import init_db
@@ -559,6 +569,16 @@ async def redis_health_endpoint():
                 "timestamp": datetime.now(timezone.utc).isoformat()
             }
         )
+
+
+@api_router.get("/debug/config", summary="Runtime Configuration Report", operation_id="runtime_config_report", tags=["system"])
+async def runtime_config_report():
+    report = validate_runtime_configuration()
+    report["instance_id"] = instance_id
+    report["timestamp"] = datetime.now(timezone.utc).isoformat()
+    status_code = 200 if report["status"] != "error" else 503
+    return JSONResponse(status_code=status_code, content=report)
+
 
 def _get_health_metrics() -> dict:
     from core.services.system_metrics import get_system_metrics
