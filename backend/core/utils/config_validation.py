@@ -35,6 +35,43 @@ CORE_REDIS_KEYS = (
 )
 CORE_ENCRYPTION_KEYS = ("MCP_CREDENTIAL_ENCRYPTION_KEY", "ENCRYPTION_KEY")
 SUPABASE_KEYS = ("SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY")
+MAIN_LLM_PROVIDER_KEYS: Dict[str, Sequence[str]] = {
+    "anthropic": ("ANTHROPIC_API_KEY",),
+    "bedrock": ("AWS_BEARER_TOKEN_BEDROCK", "AWS_ACCESS_KEY_ID"),
+    "grok": ("OPENROUTER_API_KEY",),
+    "kimi": ("OPENROUTER_API_KEY",),
+    "minimax": ("OPENROUTER_API_KEY",),
+    "openai": ("OPENAI_API_KEY", "OPENAI_COMPATIBLE_API_KEY", "OPENROUTER_API_KEY"),
+}
+DOCUMENTED_REQUIRED_ENV_GROUPS: Dict[str, Sequence[str]] = {
+    "runtime": ("ENV_MODE",),
+    "supabase": SUPABASE_KEYS,
+    "database": ("DATABASE_URL", "DATABASE_POOLER_URL"),
+    "redis": ("REDIS_INTERNAL_URL", "REDIS_PRIVATE_URL", "REDIS_URL"),
+    "security": ("MCP_CREDENTIAL_ENCRYPTION_KEY",),
+    "main_llm": ("MAIN_LLM",),
+}
+DOCUMENTED_OPTIONAL_ENV_GROUPS: Dict[str, Sequence[str]] = {
+    "memory": ("MEMORY_EMBEDDING_PROVIDER", "MEMORY_EMBEDDING_MODEL", "VOYAGE_API_KEY", "OPENAI_API_KEY"),
+    "sandbox": ("DAYTONA_API_KEY", "DAYTONA_SERVER_URL", "DAYTONA_TARGET"),
+    "media": ("REPLICATE_API_TOKEN",),
+    "search": ("TAVILY_API_KEY",),
+    "scraping": ("FIRECRAWL_API_KEY",),
+    "image_search": ("SERPER_API_KEY",),
+    "integrations": ("COMPOSIO_API_KEY", "COMPOSIO_WEBHOOK_SECRET"),
+    "notifications": ("NOVU_SECRET_KEY",),
+    "billing": (
+        "STRIPE_SECRET_KEY",
+        "STRIPE_WEBHOOK_SECRET",
+        "REVENUECAT_API_KEY",
+        "REVENUECAT_PROJECT_ID",
+        "REVENUECAT_WEBHOOK_SECRET",
+    ),
+    "voice": ("VAPI_PRIVATE_KEY", "VAPI_PUBLIC_KEY", "VAPI_PHONE_NUMBER_ID", "VAPI_WEBHOOK_SECRET"),
+    "trust": ("REALITY_DEFENDER_API_KEY",),
+    "observability": ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LANGFUSE_HOST", "BRAINTRUST_API_KEY"),
+}
+DIAGNOSTIC_ENDPOINTS: Sequence[str] = ("/v1/health", "/v1/debug/redis", "/v1/debug/config")
 
 
 def _env_mode() -> EnvMode:
@@ -94,20 +131,9 @@ def _add_all_required(
     )
 
 
-def _provider_requirements() -> Dict[str, Sequence[str]]:
-    return {
-        "anthropic": ("ANTHROPIC_API_KEY",),
-        "bedrock": ("AWS_BEARER_TOKEN_BEDROCK", "AWS_ACCESS_KEY_ID"),
-        "grok": ("OPENROUTER_API_KEY",),
-        "kimi": ("OPENROUTER_API_KEY",),
-        "minimax": ("OPENROUTER_API_KEY",),
-        "openai": ("OPENAI_API_KEY", "OPENAI_COMPATIBLE_API_KEY", "OPENROUTER_API_KEY"),
-    }
-
-
 def _validate_main_llm(findings: List[ConfigFinding]) -> None:
     provider = (getattr(config, "MAIN_LLM", None) or "bedrock").lower()
-    keys = _provider_requirements().get(provider)
+    keys = MAIN_LLM_PROVIDER_KEYS.get(provider)
     if not keys:
         findings.append(
             ConfigFinding(
@@ -236,17 +262,31 @@ def validate_runtime_configuration() -> Dict[str, Any]:
             "database": bool(_first_present(CORE_DATABASE_KEYS)),
             "redis": bool(_first_present(CORE_REDIS_KEYS)),
             "encryption": bool(_first_present(CORE_ENCRYPTION_KEYS)),
-            "supabase": all(_is_set(key) for key in SUPABASE_KEYS),
-            "main_llm_credentials": bool(
-                _first_present(
-                    _provider_requirements().get(
-                        (getattr(config, "MAIN_LLM", None) or "bedrock").lower(),
-                        (),
+                "supabase": all(_is_set(key) for key in SUPABASE_KEYS),
+                "main_llm_credentials": bool(
+                    _first_present(
+                        MAIN_LLM_PROVIDER_KEYS.get(
+                            (getattr(config, "MAIN_LLM", None) or "bedrock").lower(),
+                            (),
+                        )
                     )
-                )
-            ),
+                ),
         },
     }
+
+
+def documented_env_keys() -> Dict[str, Sequence[str]]:
+    return {
+        **DOCUMENTED_REQUIRED_ENV_GROUPS,
+        **DOCUMENTED_OPTIONAL_ENV_GROUPS,
+        "main_llm_provider_credentials": tuple(
+            sorted({key for keys in MAIN_LLM_PROVIDER_KEYS.values() for key in keys})
+        ),
+    }
+
+
+def supported_main_llm_providers() -> Dict[str, Sequence[str]]:
+    return MAIN_LLM_PROVIDER_KEYS
 
 
 def should_fail_startup(report: Dict[str, Any]) -> bool:

@@ -87,7 +87,10 @@ async def lifespan(app: FastAPI):
     try:
         config_report = validate_runtime_configuration()
         if config_report["status"] != "ok":
-            logger.warning("Runtime configuration findings on startup: %s", config_report)
+            logger.warning(
+                "Runtime configuration findings on startup: %s",
+                config_report,
+            )
         if should_fail_startup(config_report):
             raise RuntimeError(
                 f"Refusing startup because required configuration is missing: "

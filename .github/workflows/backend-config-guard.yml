@@ -1,0 +1,57 @@
+name: Backend Config Guard
+
+on:
+  pull_request:
+    paths:
+      - "backend/api.py"
+      - "backend/.env.example"
+      - "backend/core/utils/config.py"
+      - "backend/core/utils/config_validation.py"
+      - "backend/tests/core/test_config_validation.py"
+      - "backend/tests/core/test_config_contract.py"
+      - "docs/configuration-inventory.md"
+      - ".github/workflows/backend-config-guard.yml"
+  push:
+    branches:
+      - main
+      - staging
+      - PRODUCTION
+    paths:
+      - "backend/api.py"
+      - "backend/.env.example"
+      - "backend/core/utils/config.py"
+      - "backend/core/utils/config_validation.py"
+      - "backend/tests/core/test_config_validation.py"
+      - "backend/tests/core/test_config_contract.py"
+      - "docs/configuration-inventory.md"
+      - ".github/workflows/backend-config-guard.yml"
+  workflow_dispatch:
+
+jobs:
+  config-guard:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install minimal test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-asyncio python-dotenv
+
+      - name: Run backend config guard tests
+        env:
+          PYTHONPATH: backend
+        run: |
+          python -m pytest \
+            --noconftest \
+            backend/tests/core/test_config_validation.py \
+            backend/tests/core/test_config_contract.py \
+            -q
