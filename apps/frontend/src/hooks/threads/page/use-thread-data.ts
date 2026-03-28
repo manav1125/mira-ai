@@ -50,6 +50,7 @@ export function useThreadData(
   const foundRunningAgentRef = useRef(false);
   const hasInitiallyScrolled = useRef<boolean>(false);
   const lastDetectedRunIdRef = useRef<string | null>(null);
+  const hasInitializedFromPreconnect = useRef(false);
   
   const retryCountRef = useRef(0);
 
@@ -68,7 +69,12 @@ export function useThreadData(
     staleTime: 10000,
   });
   
-  const shouldPollAgentRuns = waitingForAgent && !foundRunningAgentRef.current && !agentRunId;
+  const shouldPollAgentRuns = !isShared && (
+    (waitingForAgent && !foundRunningAgentRef.current && !agentRunId) ||
+    agentStatus === 'running' ||
+    agentStatus === 'connecting' ||
+    !!agentRunId
+  );
   
   const agentRunsQuery = useAgentRunsQuery(threadId, { 
     enabled: !isShared,
@@ -86,14 +92,13 @@ export function useThreadData(
     lastDetectedRunIdRef.current = null;
     initialLoadCompleted.current = false;
     hasInitiallyScrolled.current = false;
+    hasInitializedFromPreconnect.current = false;
     retryCountRef.current = 0;
     setMessages([]);
     setAgentRunId(null);
     setAgentStatus('idle');
   }, [threadId]);
 
-  const hasInitializedFromPreconnect = useRef(false);
-  
   useEffect(() => {
     if (hasInitializedFromPreconnect.current || isShared || agentRunId) {
       return;

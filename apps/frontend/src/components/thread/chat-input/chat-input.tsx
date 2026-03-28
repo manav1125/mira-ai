@@ -672,7 +672,10 @@ const SubmitButton = memo(function SubmitButton({
   const ENABLE_MESSAGE_QUEUE = false;
   // When agent is running and user has typed something, show queue button
   const showAddToQueue = ENABLE_MESSAGE_QUEUE && isAgentRunning && (hasContent || hasFiles);
-  const buttonAction = showAddToQueue ? onSubmit : (isAgentRunning && onStopAgent ? onStopAgent : onSubmit);
+  const shouldStopAgent = isAgentRunning && !hasContent && !hasFiles;
+  const buttonAction = showAddToQueue
+    ? onSubmit
+    : (shouldStopAgent && onStopAgent ? onStopAgent : onSubmit);
 
   return (
     <div className="relative">
@@ -693,7 +696,7 @@ const SubmitButton = memo(function SubmitButton({
               <KortixLoader size="small" customSize={20} variant={buttonLoaderVariant} />
             ) : showAddToQueue ? (
               <MessageSquare className="h-4 w-4" />
-            ) : isAgentRunning ? (
+            ) : shouldStopAgent ? (
               <div className="min-h-[14px] min-w-[14px] w-[14px] h-[14px] rounded-sm bg-current" />
             ) : (
               <CornerDownLeft className="h-5 w-5" />
@@ -708,7 +711,7 @@ const SubmitButton = memo(function SubmitButton({
           <TooltipContent side="top">
             <p>Add to queue</p>
           </TooltipContent>
-        ) : isAgentRunning ? (
+        ) : shouldStopAgent ? (
           <TooltipContent side="top">
             <p>Stop agent</p>
           </TooltipContent>

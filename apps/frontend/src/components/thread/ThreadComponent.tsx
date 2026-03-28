@@ -1263,7 +1263,21 @@ export function ThreadComponent({ projectId, threadId, compact = false, configur
       }
       
       if (agentStatus === 'running' || agentStatus === 'connecting') {
-        return;
+        try {
+          await stopStreaming();
+
+          if (agentRunId && stopAgentMutation) {
+            await stopAgentMutation.mutateAsync(agentRunId);
+          }
+        } catch (error) {
+          console.error('Failed to interrupt active agent before sending new message:', error);
+          toast.error('Please wait for the current task to finish, or stop it and try again.');
+          return;
+        }
+
+        setAgentStatus('idle');
+        setAgentRunId(null);
+        lastStreamStartedRef.current = null;
       }
 
       setIsSending(true);
@@ -1352,6 +1366,9 @@ export function ThreadComponent({ projectId, threadId, compact = false, configur
       selectedAgentId,
       selectedMode,
       agentStatus,
+      agentRunId,
+      stopAgentMutation,
+      stopStreaming,
       queueMessage,
       queuedMessages,
       modeStarter,
