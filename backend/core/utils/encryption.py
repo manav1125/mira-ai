@@ -4,28 +4,46 @@ Simple encryption utilities for credential profiles.
 
 import os
 import base64
+import hashlib
 from cryptography.fernet import Fernet
 from core.utils.logger import logger
 
 
 def get_encryption_key() -> bytes:
-    """Get or create encryption key for credentials."""
-    key_env = os.getenv("MCP_CREDENTIAL_ENCRYPTION_KEY")
-    
+    """
+    Get the credential encryption key.
+
+    Prefer the explicit credential key env vars. If they are missing, derive a
+    stable fallback from existing production secrets so the API can still boot.
+    """
+    key_env = os.getenv("MCP_CREDENTIAL_ENCRYPTION_KEY") or os.getenv("ENCRYPTION_KEY")
+
     if key_env:
         try:
-            if isinstance(key_env, str):
-                return key_env.encode('utf-8')
-            else:
-                return key_env
+            return key_env.encode("utf-8") if isinstance(key_env, str) else key_env
         except Exception as e:
             logger.error(f"Invalid encryption key: {e}")
-    
-    # Generate a new key as fallback
-    logger.warning("No encryption key found, generating new key for this session")
+
+    for seed_var in (
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "DATABASE_URL",
+        "DATABASE_POOLER_URL",
+        "POSTGRES_PASSWORD",
+        "SUPABASE_URL",
+    ):
+        seed = os.getenv(seed_var)
+        if not seed:
+            continue
+
+        derived_key = base64.urlsafe_b64encode(hashlib.sha256(seed.encode("utf-8")).digest())
+        logger.warning(
+            "Credential encryption key env missing; using stable derived fallback from existing service secrets"
+        )
+        return derived_key
+
+    logger.warning("No stable credential encryption seed found, generating a temporary session key")
     key = Fernet.generate_key()
-    logger.debug(f"Generated new encryption key. Set this in your environment:")
-    logger.debug(f"MCP_CREDENTIAL_ENCRYPTION_KEY={key.decode()}")
+    logger.debug("Generated temporary encryption key for this process only")
     return key
 
 

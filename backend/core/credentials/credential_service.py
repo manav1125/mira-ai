@@ -11,6 +11,7 @@ from cryptography.fernet import Fernet
 
 from core.services.supabase import DBConnection
 from core.utils.logger import logger
+from core.utils.encryption import get_encryption_key
 
 
 @dataclass(frozen=True)
@@ -57,19 +58,8 @@ class EncryptionService:
         self._cipher = Fernet(self._encryption_key)
     
     def _get_or_create_encryption_key(self) -> bytes:
-        # Try MCP_CREDENTIAL_ENCRYPTION_KEY first, then fall back to ENCRYPTION_KEY
-        key_env = os.getenv("MCP_CREDENTIAL_ENCRYPTION_KEY") or os.getenv("ENCRYPTION_KEY")
-        
-        if not key_env:
-            logger.error("No encryption key found in environment variables")
-            raise ValueError("MCP_CREDENTIAL_ENCRYPTION_KEY or ENCRYPTION_KEY must be set")
-        
         try:
-            if isinstance(key_env, str):
-                return key_env.encode('utf-8')
-            else:
-                return key_env
-                
+            return get_encryption_key()
         except Exception as e:
             logger.error(f"Invalid encryption key: {e}")
             raise ValueError(f"Invalid encryption key format: {e}")
