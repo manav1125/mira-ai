@@ -1140,6 +1140,76 @@ class SandboxPresentationTool(SandboxToolsBase):
         hide_style = "display: none !important"
         element["style"] = f"{existing}; {hide_style}" if existing else hide_style
 
+    def _set_template_background_visual(self, element: Any, visual_src: str) -> None:
+        if element is None or not visual_src:
+            return
+        existing = (element.get("style") or "").strip().rstrip(";")
+        visual_style = (
+            f'background-image: url("{escape(visual_src, quote=True)}"); '
+            "background-size: cover; "
+            "background-position: center; "
+            "background-repeat: no-repeat; "
+            "background-color: transparent;"
+        )
+        element["style"] = f"{existing}; {visual_style}" if existing else visual_style
+
+    def _split_template_cover_title(self, title_text: str) -> tuple[str, str]:
+        cleaned = re.sub(r"\s+", " ", (title_text or "").strip())
+        if not cleaned:
+            return ("INSIGHT", "OVERVIEW")
+
+        words = cleaned.split()
+        if len(words) == 1:
+            return (words[0].upper(), words[0].upper())
+        if len(words) == 2:
+            return (words[0].upper(), words[1].upper())
+
+        split_index = max(1, min(len(words) - 1, (len(words) + 1) // 2))
+        first_line = " ".join(words[:split_index]).upper()
+        second_line = " ".join(words[split_index:]).upper()
+        return (first_line, second_line)
+
+    def _apply_template_visual_placeholders(self, soup: BeautifulSoup, visual_src: str) -> int:
+        if not visual_src:
+            return 0
+
+        applied = 0
+        placeholder_tokens = (
+            "image-placeholder",
+            "bottom-section",
+            "card-image",
+            "box-gray",
+            "box-blue",
+            "box-dark",
+            "mockup",
+            "portrait",
+            "photo",
+            "visual",
+            "media",
+            "hero-image",
+            "hero-photo",
+        )
+
+        for element in soup.find_all(True):
+            if element.name == "img":
+                continue
+
+            classes = " ".join(element.get("class", [])).lower()
+            if not classes or not any(token in classes for token in placeholder_tokens):
+                continue
+
+            if element.find("img"):
+                continue
+
+            text_content = re.sub(r"\s+", " ", element.get_text(" ", strip=True))
+            if len(text_content) > 40:
+                continue
+
+            self._set_template_background_visual(element, visual_src)
+            applied += 1
+
+        return applied
+
     def _select_template_reference_slide_number(self, requested_slide: int, template_slide_count: int) -> int:
         if template_slide_count <= 0:
             return requested_slide
@@ -1193,12 +1263,22 @@ class SandboxPresentationTool(SandboxToolsBase):
         supporting = [self._truncate_template_copy(str(item), 180) for item in semantics.get("supporting", []) if item]
         key_points = [self._truncate_template_copy(str(item), 120) for item in semantics.get("key_points", []) if item]
         metrics = [self._truncate_template_copy(str(item), 120) for item in semantics.get("metrics", []) if item]
+        metric_cards = self._build_metric_cards(metrics)
+        title_line_1, title_line_2 = self._split_template_cover_title(title_text)
 
         title_labels = [title_text] + [self._shorten_template_label(item) for item in (key_points + metrics + supporting)]
         body_copy = [lead_text] + supporting + key_points + metrics
         body_copy = [item for item in body_copy if item]
         if not body_copy:
             body_copy = [lead_text]
+        section_labels = self._dedupe_text_items(
+            [title_text]
+            + [self._shorten_template_label(item) for item in (key_points + supporting + metrics)]
+        ) or [title_text]
+        long_copy = self._dedupe_text_items([lead_text] + supporting + key_points + metrics) or [lead_text]
+        stat_displays = [card["display"] for card in metric_cards if card.get("display")]
+        stat_labels = [self._shorten_template_label(card["label"], fallback="Metric") for card in metric_cards if card.get("label")]
+        stat_descriptions = [self._truncate_template_copy(card["label"], 150) for card in metric_cards if card.get("label")]
 
         title_queue = title_labels.copy()
         body_queue = body_copy.copy()
@@ -1226,9 +1306,61 @@ class SandboxPresentationTool(SandboxToolsBase):
         # Preserve well-known template framing while replacing placeholder copy.
         assign_selectors([".brand"], [branding["brand"]])
         assign_selectors([".company-name"], [branding["brand"]], fallback_hide=False)
+        assign_selectors([".logo-text"], [branding["brand"]], fallback_hide=False)
         assign_selectors([".year"], [branding["year"]])
         assign_selectors([".website"], [branding["domain"]], fallback_hide=not bool(branding["domain"]))
         assign_selectors([".slide-number", ".section-number"], [str(slide_number)])
+        assign_selectors([".title-business"], [title_line_1], fallback_hide=False)
+        assign_selectors([".title-enterprise"], [title_line_2], fallback_hide=False)
+        assign_selectors(
+            [
+                ".main-heading",
+                ".section-title",
+                ".funding-title",
+                ".contact-section h1",
+                ".header-section h1",
+            ],
+            section_labels,
+            fallback_hide=False,
+        )
+        assign_selectors(
+            [
+                ".description",
+                ".description-white",
+                ".sub-description",
+                ".section-paragraph",
+                ".item-description",
+                ".card-description",
+                ".option-description",
+                ".description-box p",
+                ".contact-info",
+            ],
+            long_copy,
+            fallback_hide=False,
+        )
+        assign_selectors(
+            [
+                ".subheading",
+                ".funding-header",
+                ".franchise-title",
+                ".b2c-heading",
+                ".item-title",
+                ".option-heading",
+                ".card-label",
+                ".event-label",
+            ],
+            section_labels[1:] + [self._shorten_template_label(item) for item in key_points + supporting + metrics],
+            fallback_hide=False,
+        )
+        assign_selectors([".statistic", ".card-number", ".price"], stat_displays + metrics, fallback_hide=False)
+        assign_selectors([".stat-label"], stat_labels + section_labels[1:], fallback_hide=False)
+        assign_selectors(
+            [".stat-description", ".franchise-description", ".b2c-description"],
+            stat_descriptions + long_copy,
+            fallback_hide=False,
+        )
+        assign_selectors([".checklist-text"], key_points + supporting + metrics, fallback_hide=False)
+        assign_selectors([".waitlist-text"], metrics[:1] + [lead_text], fallback_hide=False)
 
         cards = soup.select(".card")
         if cards:
@@ -1323,6 +1455,7 @@ class SandboxPresentationTool(SandboxToolsBase):
             for image_tag in image_tags:
                 image_tag["src"] = visual_src
                 image_tag["alt"] = title_text
+            self._apply_template_visual_placeholders(soup, visual_src)
 
         if soup.title:
             soup.title.string = f"{presentation_title or branding['brand']} - Slide {slide_number}"
