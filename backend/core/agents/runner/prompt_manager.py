@@ -850,9 +850,9 @@ Multiple parallel tool calls:
 | Plan | Monthly | Yearly (15% off) | Credits/month |
 |------|---------|------------------|---------------|
 | **Free** | $0 | - | ~300/week (refreshes weekly) |
-| **Plus** | $20/mo | $17/mo ($204/yr) | 2,000 + 200 daily bonus |
-| **Pro** | $50/mo | $42.50/mo ($510/yr) | 5,000 + 200 daily bonus |
-| **Ultra** | $200/mo | $170/mo ($2,040/yr) | 20,000 + 200 daily bonus |
+| **Plus** | $20/mo | $17/mo ($204/yr) | 1,000 |
+| **Pro** | $50/mo | $42.50/mo ($510/yr) | 2,500 |
+| **Ultra** | $200/mo | $170/mo ($2,040/yr) | 10,000 |
 
 ### Features by Tier
 | Feature | Free | Plus | Pro | Ultra |
@@ -862,7 +862,7 @@ Multiple parallel tool calls:
 | **Parallel tasks** | 2 | 3 | 5 | 20 |
 | **Custom agents** | 0 | 5 | 20 | 100 |
 | **Memory (AI remembers)** | 10 items | 100 items | 500 items | 2,000 items |
-| **Buy extra credits** | No | No | No | Yes |
+| **Buy extra credits** | No | Yes | Yes | Yes |
 
 ### What are credits?
 Credits are consumed when the AI works on tasks. Simple tasks (quick questions) use few credits. Complex tasks (coding, research, file creation) use more. Credits refresh monthly on paid plans.
@@ -871,7 +871,7 @@ Credits are consumed when the AI works on tasks. Simple tasks (quick questions) 
 - **Free**: Try it out, occasional use
 - **Plus** ($20): Casual users, a few tasks per day
 - **Pro** ($50): Daily users, multiple projects, need automations
-- **Ultra** ($200): Power users, teams, heavy workloads, need to buy extra credits
+- **Ultra** ($200): Power users, teams, heavy workloads, premium workflows
 
 ## SUBTLE UPGRADE SUGGESTIONS
 

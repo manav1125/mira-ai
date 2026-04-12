@@ -27,9 +27,9 @@ interface PlanConfig {
 }
 
 const PLANS: PlanConfig[] = [
-  { name: 'Plus', tierKey: 'tier_2_20', monthlyPrice: 20, yearlyPrice: 204, credits: '2,000', creditsNum: 2000 },
-  { name: 'Pro', tierKey: 'tier_6_50', monthlyPrice: 50, yearlyPrice: 510, credits: '5,000', creditsNum: 5000 },
-  { name: 'Ultra', tierKey: 'tier_25_200', monthlyPrice: 200, yearlyPrice: 2040, credits: '20,000', creditsNum: 20000 },
+  { name: 'Plus', tierKey: 'tier_2_20', monthlyPrice: 20, yearlyPrice: 204, credits: '1,000', creditsNum: 1000 },
+  { name: 'Pro', tierKey: 'tier_6_50', monthlyPrice: 50, yearlyPrice: 510, credits: '2,500', creditsNum: 2500 },
+  { name: 'Ultra', tierKey: 'tier_25_200', monthlyPrice: 200, yearlyPrice: 2040, credits: '10,000', creditsNum: 10000 },
 ];
 
 // Payment Form Component (rendered inside StripeProvider)

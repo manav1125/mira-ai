@@ -116,13 +116,13 @@ export function CreditPurchaseModal({
                     <DialogHeader>
                         <DialogTitle>Credits Not Available</DialogTitle>
                         <DialogDescription>
-                            Credit purchases are only available for users on the {formatPrice(200, currency)}/month subscription tier.
+                            Credit purchases are only available on paid plans.
                         </DialogDescription>
                     </DialogHeader>
                     <Alert>
                         <AlertCircle className="h-4 w-4" />
                         <AlertDescription>
-                            Please upgrade your subscription to the {formatPrice(200, currency)}/month tier to unlock credit purchases for unlimited usage.
+                            Please upgrade to Plus or higher to unlock top-up credits when you need extra usage.
                         </AlertDescription>
                     </Alert>
                     <div className="flex justify-end">
@@ -141,7 +141,7 @@ export function CreditPurchaseModal({
                 <DialogHeader>
                     <DialogTitle>Get additional credits</DialogTitle>
                     <DialogDescription>
-                        Add credits to your account for usage beyond your subscription limit.
+                        Add credits to your account for usage beyond your monthly plan allocation. 1 credit = $0.01 of billed usage.
                     </DialogDescription>
                 </DialogHeader>
 
@@ -164,8 +164,8 @@ export function CreditPurchaseModal({
                                     onClick={() => handlePackageSelect(pkg)}
                                 >
                                     <CardContent className="p-4 text-center">
-                                        <div className="text-xl font-medium">{formatPrice(pkg.amount, currency)}</div>
-                                        <div className="text-xs text-muted-foreground mt-1">Credits</div>
+                                        <div className="text-xl font-medium">{formatPrice(pkg.price, currency)}</div>
+                                        <div className="text-xs text-muted-foreground mt-1">{formatCredits(pkg.amount * 100)}</div>
                                     </CardContent>
                                 </Card>
                             ))}

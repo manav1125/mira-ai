@@ -9,7 +9,7 @@ TRIAL_DURATION_DAYS = 7
 TRIAL_TIER = "tier_2_20"
 TRIAL_CREDITS = Decimal("5.00")
 
-TOKEN_PRICE_MULTIPLIER = Decimal('1.2')
+TOKEN_PRICE_MULTIPLIER = Decimal('2.0')
 MINIMUM_CREDIT_FOR_RUN = Decimal('0.01')
 DEFAULT_TOKEN_COST = Decimal('0.000002')
 
@@ -91,7 +91,7 @@ TIERS: Dict[str, Tier] = {
             config.STRIPE_TIER_2_20_YEARLY_ID,
             config.STRIPE_TIER_2_17_YEARLY_COMMITMENT_ID
         ],
-        monthly_credits=Decimal('40.00'),
+        monthly_credits=Decimal('10.00'),
         display_name='Plus',
         can_purchase_credits=True,
         models=['all'],
@@ -111,8 +111,8 @@ TIERS: Dict[str, Tier] = {
             'retrieval_limit': 15
         },
         daily_credit_config={
-            'enabled': True,
-            'amount': Decimal('2.00'),
+            'enabled': False,
+            'amount': Decimal('0.00'),
             'refresh_interval_hours': 24
         },
         monthly_refill_enabled=True
@@ -124,7 +124,7 @@ TIERS: Dict[str, Tier] = {
             config.STRIPE_TIER_6_50_YEARLY_ID,
             config.STRIPE_TIER_6_42_YEARLY_COMMITMENT_ID
         ],
-        monthly_credits=Decimal('100.00'),
+        monthly_credits=Decimal('25.00'),
         display_name='Pro',
         can_purchase_credits=True,
         models=['all'],
@@ -141,8 +141,8 @@ TIERS: Dict[str, Tier] = {
             'retrieval_limit': 25
         },
         daily_credit_config={
-            'enabled': True,
-            'amount': Decimal('2.00'),
+            'enabled': False,
+            'amount': Decimal('0.00'),
             'refresh_interval_hours': 24
         },
         monthly_refill_enabled=True
@@ -154,7 +154,7 @@ TIERS: Dict[str, Tier] = {
             config.STRIPE_TIER_25_200_YEARLY_ID,
             config.STRIPE_TIER_25_170_YEARLY_COMMITMENT_ID
         ],
-        monthly_credits=Decimal('400.00'),
+        monthly_credits=Decimal('100.00'),
         display_name='Ultra',
         can_purchase_credits=True,
         models=['all'],
@@ -171,8 +171,8 @@ TIERS: Dict[str, Tier] = {
             'retrieval_limit': 40
         },
         daily_credit_config={
-            'enabled': True,
-            'amount': Decimal('2.00'),
+            'enabled': False,
+            'amount': Decimal('0.00'),
             'refresh_interval_hours': 24
         },
         monthly_refill_enabled=True

@@ -66,10 +66,9 @@ export const pricingTiers: PricingTier[] = [
     buttonColor: 'bg-primary text-white dark:text-black',
     isPopular: false,
     hours: '2 hours',
-    baseCredits: 2000,
-    bonusCredits: 2000,
+    baseCredits: 1000,
     features: [
-      'CREDITS_BONUS:2000:4000',
+      '1,000 monthly credits',
       'Unlimited Chats',
       '3 concurrent runs - Run multiple Chats simultaneously',
       '5 custom AI Workers - Create VentureVerse Workers with custom Knowledge, Tools & Integrations',
@@ -92,10 +91,9 @@ export const pricingTiers: PricingTier[] = [
     buttonColor: 'bg-primary text-white dark:text-black',
     isPopular: true,
     hours: '6 hours',
-    baseCredits: 5000,
-    bonusCredits: 5000,
+    baseCredits: 2500,
     features: [
-      'CREDITS_BONUS:5000:10000',
+      '2,500 monthly credits',
       'Unlimited Chats',
       '5 concurrent runs - Run multiple Chats simultaneously',
       '20 custom AI Workers - Create VentureVerse Workers with custom Knowledge, Tools & Integrations',
@@ -140,10 +138,9 @@ export const pricingTiers: PricingTier[] = [
     buttonColor: 'bg-primary text-white dark:text-black',
     isPopular: false,
     hours: '25 hours',
-    baseCredits: 20000,
-    bonusCredits: 20000,
+    baseCredits: 10000,
     features: [
-      'CREDITS_BONUS:20000:40000',
+      '10,000 monthly credits',
       'Unlimited Chats',
       '20 concurrent runs - Run multiple Chats simultaneously',
       '100 custom AI Workers - Create VentureVerse Workers with custom Knowledge, Tools & Integrations',
@@ -225,4 +222,3 @@ export const pricingTiers: PricingTier[] = [
     hidden: true,
   },
 ];
-

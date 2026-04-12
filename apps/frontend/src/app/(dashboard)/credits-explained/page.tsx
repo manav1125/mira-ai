@@ -123,7 +123,7 @@ export default function CreditsPage() {
                   <h3 className="font-semibold text-foreground">Daily / Weekly</h3>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Free tier: 300 credits weekly. Paid tiers: 200 credits daily. Use it or lose it—these credits reset and don't roll over.
+                  Free tier: 300 credits weekly. Paid tiers receive a monthly credit allocation based on plan. Subscription credits reset on their refresh cycle and do not roll over.
                 </p>
               </CardContent>
             </Card>
@@ -162,13 +162,13 @@ export default function CreditsPage() {
                 <div className="flex items-start gap-3">
                   <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-2 flex-shrink-0" />
                   <div>
-                    <span className="font-medium text-foreground">Daily/Weekly credits:</span> Free tier gets 300 credits weekly. Paid tiers get 200 credits daily. Check your billing page to see when your next refresh happens. Unused credits don't roll over.
+                    <span className="font-medium text-foreground">Weekly credits:</span> Free tier gets 300 credits weekly. Unused weekly credits do not roll over.
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
                   <div className="w-1.5 h-1.5 rounded-full bg-orange-500 mt-2 flex-shrink-0" />
                   <div>
-                    <span className="font-medium text-foreground">Monthly credits:</span> Your subscription's main credit allocation. These refresh at the start of each billing cycle and don't accumulate—use them within the month.
+                    <span className="font-medium text-foreground">Monthly credits:</span> Your subscription's main credit allocation. Paid plans currently include 1,000, 2,500, or 10,000 credits per month depending on tier. These refresh at the start of each billing cycle and do not accumulate.
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
