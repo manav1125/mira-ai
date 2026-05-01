@@ -41,6 +41,10 @@ def _clear_env(monkeypatch) -> None:
         "OPENAI_COMPATIBLE_API_KEY",
         "AWS_BEARER_TOKEN_BEDROCK",
         "AWS_ACCESS_KEY_ID",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "STRIPE_SECRET_KEY",
+        "STRIPE_WEBHOOK_SECRET",
     }
     for keys in DOCUMENTED_OPTIONAL_ENV_GROUPS.values():
         candidate_keys.update(keys)
@@ -106,6 +110,10 @@ def test_returns_ok_when_full_documented_stack_is_present(monkeypatch):
         "FIRECRAWL_API_KEY": "firecrawl",
         "COMPOSIO_API_KEY": "composio",
         "NOVU_SECRET_KEY": "novu",
+        "GOOGLE_CLIENT_ID": "google-client",
+        "GOOGLE_CLIENT_SECRET": "google-secret",
+        "STRIPE_SECRET_KEY": "stripe-secret",
+        "STRIPE_WEBHOOK_SECRET": "stripe-webhook",
     }
 
     for key, value in required_env.items():
@@ -122,4 +130,40 @@ def test_returns_ok_when_full_documented_stack_is_present(monkeypatch):
         "supabase": True,
         "main_llm_credentials": True,
     }
+    assert should_fail_startup(report) is False
+
+
+def test_warns_when_billing_credentials_are_missing(monkeypatch):
+    _clear_env(monkeypatch)
+    _set_runtime_config(monkeypatch, env_mode=EnvMode.PRODUCTION, main_llm="anthropic")
+
+    required_env = {
+        "SUPABASE_URL": "https://example.supabase.co",
+        "SUPABASE_ANON_KEY": "anon",
+        "SUPABASE_SERVICE_ROLE_KEY": "service",
+        "SUPABASE_JWT_SECRET": "jwt",
+        "DATABASE_URL": "postgresql://postgres:password@localhost:5432/postgres",
+        "REDIS_INTERNAL_URL": "redis://private-redis:6379",
+        "MCP_CREDENTIAL_ENCRYPTION_KEY": "secret",
+        "ANTHROPIC_API_KEY": "anthropic",
+        "DAYTONA_API_KEY": "daytona",
+        "REPLICATE_API_TOKEN": "replicate",
+        "TAVILY_API_KEY": "tavily",
+        "FIRECRAWL_API_KEY": "firecrawl",
+        "COMPOSIO_API_KEY": "composio",
+        "NOVU_SECRET_KEY": "novu",
+        "GOOGLE_CLIENT_ID": "google-client",
+        "GOOGLE_CLIENT_SECRET": "google-secret",
+    }
+
+    for key, value in required_env.items():
+        monkeypatch.setenv(key, value)
+
+    report = validate_runtime_configuration()
+    warning_codes = {entry["code"] for entry in report["warnings"]}
+
+    assert report["status"] == "warning"
+    assert report["summary"]["errors"] == 0
+    assert "STRIPE_SECRET_KEY_MISSING" in warning_codes
+    assert "STRIPE_WEBHOOK_SECRET_MISSING" in warning_codes
     assert should_fail_startup(report) is False

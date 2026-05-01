@@ -190,6 +190,10 @@ def _validate_recommendations(findings: List[ConfigFinding]) -> None:
         ("sandbox", "DAYTONA_API_KEY", "Sandbox-backed tools will be unavailable."),
         ("integrations", "COMPOSIO_API_KEY", "Composio integrations will be unavailable."),
         ("notifications", "NOVU_SECRET_KEY", "Novu notifications will be unavailable."),
+        ("billing", "STRIPE_SECRET_KEY", "Stripe checkout and subscription management will be unavailable."),
+        ("billing", "STRIPE_WEBHOOK_SECRET", "Stripe webhook signature verification will be unavailable."),
+        ("google", "GOOGLE_CLIENT_ID", "Google Docs/Slides export OAuth will be unavailable."),
+        ("google", "GOOGLE_CLIENT_SECRET", "Google Docs/Slides export OAuth will be unavailable."),
     ]
     for category, key, message in optional_features:
         if _is_set(key):

@@ -71,7 +71,7 @@ This plan is designed to answer one question before launch: can a real customer 
 | Pricing | 2x cost markup | Credit charge is at least 100% margin over raw LLM cost | BLOCKED |
 | Plans | Monthly allowance | Free/Pro/Business/Enterprise grant correct monthly credits | BLOCKED |
 | Top-ups | One-time purchase | Stripe payment grants credits exactly once | BLOCKED |
-| Webhooks | Idempotency | Replayed Stripe webhook does not double-credit account | BLOCKED, `STRIPE_WEBHOOK_SECRET` not visible in current Render backend env list |
+| Webhooks | Idempotency | Replayed Stripe webhook does not double-credit account | BLOCKED, `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` still need to be added/confirmed in Render |
 | Exhaustion | Low credits | User gets clear warning and cannot silently run expensive agents past limit | BLOCKED |
 | Admin | Usage dashboard | Internal view shows account-level cost, revenue, margin, and provider breakdown | BLOCKED |
 
