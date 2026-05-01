@@ -54,7 +54,7 @@ This plan is designed to answer one question before launch: can a real customer 
 | --- | --- | --- | --- |
 | Composio Gmail | Connect one user and fetch unread email | User sees only their own Gmail data | BLOCKED |
 | Composio isolation | Two users connect different Gmail accounts | User A cannot access User B's emails or actions | BLOCKED, must run before launch |
-| Google Slides export | OAuth flow and deck creation | No `invalid_client`; created Google Slides opens | BLOCKED |
+| Google Slides export | OAuth flow and deck creation | No `invalid_client`; created Google Slides opens | IN PROGRESS |
 | Google Drive files | Upload/read/export file | File is saved under correct user/project scope | BLOCKED |
 | Daytona | Sandbox resolution | New project gets a sandbox and tool execution succeeds | BLOCKED |
 | Firecrawl/Tavily/Serper | Research workflows | Search and scrape actions complete with citations | BLOCKED |
@@ -71,7 +71,7 @@ This plan is designed to answer one question before launch: can a real customer 
 | Pricing | 2x cost markup | Credit charge is at least 100% margin over raw LLM cost | BLOCKED |
 | Plans | Monthly allowance | Free/Pro/Business/Enterprise grant correct monthly credits | BLOCKED |
 | Top-ups | One-time purchase | Stripe payment grants credits exactly once | BLOCKED |
-| Webhooks | Idempotency | Replayed Stripe webhook does not double-credit account | BLOCKED |
+| Webhooks | Idempotency | Replayed Stripe webhook does not double-credit account | BLOCKED, `STRIPE_WEBHOOK_SECRET` not visible in current Render backend env list |
 | Exhaustion | Low credits | User gets clear warning and cannot silently run expensive agents past limit | BLOCKED |
 | Admin | Usage dashboard | Internal view shows account-level cost, revenue, margin, and provider breakdown | BLOCKED |
 
@@ -79,8 +79,8 @@ This plan is designed to answer one question before launch: can a real customer 
 
 | Area | Test | Expected Result | Status |
 | --- | --- | --- | --- |
-| Deploy safety | Render services use correct repo/branch | Mira frontend, backend, and Redis all point at `mira-ai` and expected branch | NEEDS VERIFICATION |
-| Env safety | Env inventory is complete | Required env groups are present in Render and documented | PARTIAL, blocked by config endpoint 404 |
+| Deploy safety | Render services use correct repo/branch | Mira frontend, backend, and Redis all point at `mira-ai` and expected branch | PASS |
+| Env safety | Env inventory is complete | Required env groups are present in Render and documented | PASS FOR CORE, BILLING NEEDS STRIPE SECRET/WEBHOOK CONFIRMATION |
 | CI | Config guard | CI fails if required production env contract is missing | PRESENT IN CODE, NEEDS LIVE CONFIRMATION |
 | CI | Backend E2E workflow | Workflow targets Mira Render URLs, not legacy Kortix URLs | FAIL, current workflow still references legacy URLs |
 | Observability | Logs and traces | Failed runs include run id, user id, provider, tool, and error class | NEEDS VERIFICATION |
