@@ -1,5 +1,10 @@
 name: E2E API Tests
 
+env:
+  MIRA_DEV_API_URL: ${{ vars.MIRA_DEV_API_URL || 'https://suna-backend-3teh.onrender.com/v1' }}
+  MIRA_STAGING_API_URL: ${{ vars.MIRA_STAGING_API_URL || 'https://suna-backend-3teh.onrender.com/v1' }}
+  MIRA_PRODUCTION_API_URL: ${{ vars.MIRA_PRODUCTION_API_URL || 'https://suna-backend-3teh.onrender.com/v1' }}
+
 on:
   push:
     branches:
@@ -53,15 +58,15 @@ jobs:
           # Manual trigger with environment selection
           if [ "${{ github.event.inputs.environment }}" = "production" ]; then
             echo "environment=production" >> $GITHUB_OUTPUT
-            echo "api_url=https://api.kortix.com/v1" >> $GITHUB_OUTPUT
+            echo "api_url=$MIRA_PRODUCTION_API_URL" >> $GITHUB_OUTPUT
             exit 0
           elif [ "${{ github.event.inputs.environment }}" = "staging" ]; then
             echo "environment=staging" >> $GITHUB_OUTPUT
-            echo "api_url=https://staging-api.kortix.com/v1" >> $GITHUB_OUTPUT
+            echo "api_url=$MIRA_STAGING_API_URL" >> $GITHUB_OUTPUT
             exit 0
           elif [ "${{ github.event.inputs.environment }}" = "dev" ]; then
             echo "environment=dev" >> $GITHUB_OUTPUT
-            echo "api_url=https://dev-api.kortix.com/v1" >> $GITHUB_OUTPUT
+            echo "api_url=$MIRA_DEV_API_URL" >> $GITHUB_OUTPUT
             exit 0
           fi
 
@@ -81,27 +86,27 @@ jobs:
           # PRODUCTION branch → production environment
           if [ "$BRANCH" = "PRODUCTION" ]; then
             echo "environment=production" >> $GITHUB_OUTPUT
-            echo "api_url=https://api.kortix.com/v1" >> $GITHUB_OUTPUT
+            echo "api_url=$MIRA_PRODUCTION_API_URL" >> $GITHUB_OUTPUT
             exit 0
           fi
 
           # staging branch → staging environment
           if [ "$BRANCH" = "staging" ]; then
             echo "environment=staging" >> $GITHUB_OUTPUT
-            echo "api_url=https://staging-api.kortix.com/v1" >> $GITHUB_OUTPUT
+            echo "api_url=$MIRA_STAGING_API_URL" >> $GITHUB_OUTPUT
             exit 0
           fi
 
           # main branch → dev environment
           if [ "$BRANCH" = "main" ]; then
             echo "environment=dev" >> $GITHUB_OUTPUT
-            echo "api_url=https://dev-api.kortix.com/v1" >> $GITHUB_OUTPUT
+            echo "api_url=$MIRA_DEV_API_URL" >> $GITHUB_OUTPUT
             exit 0
           fi
 
           # Default to dev
           echo "environment=dev" >> $GITHUB_OUTPUT
-          echo "api_url=https://dev-api.kortix.com/v1" >> $GITHUB_OUTPUT
+          echo "api_url=$MIRA_DEV_API_URL" >> $GITHUB_OUTPUT
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -159,6 +164,14 @@ jobs:
           echo "❌ API health check failed after 5 attempts"
           exit 1
 
+      - name: Runtime config check
+        env:
+          API_URL: ${{ steps.env.outputs.api_url }}
+        run: |
+          echo "🔍 Checking runtime config contract at $API_URL/debug/config..."
+          curl -fsS "$API_URL/debug/config" >/tmp/mira-runtime-config.json
+          echo "✅ Runtime config endpoint is available"
+
       - name: Run E2E tests
         working-directory: backend
         env:
@@ -181,11 +194,12 @@ jobs:
           fi
           echo ""
 
-          # Build pytest command
+          # Build pytest command. The full flow is the real launch smoke; tests/api
+          # contains smaller endpoint checks and may be selected with test_filter.
           if [ -n "$TEST_FILTER" ]; then
             pytest tests/api/ -v --tb=short -k "$TEST_FILTER" --timeout=120
           else
-            pytest tests/api/ -v --tb=short --timeout=120
+            pytest tests/e2e/test_full_flow.py::test_complete_api_flow -v --tb=short --timeout=180
           fi
 
       - name: Test Summary

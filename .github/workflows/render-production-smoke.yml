@@ -1,0 +1,23 @@
+name: Render Production Smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 * * * *"
+
+env:
+  BACKEND_URL: ${{ vars.MIRA_PRODUCTION_API_URL || 'https://suna-backend-3teh.onrender.com/v1' }}
+  FRONTEND_URL: ${{ vars.MIRA_PRODUCTION_FRONTEND_URL || 'https://mira-frontend-d85v.onrender.com' }}
+
+jobs:
+  smoke:
+    name: Live Render smoke check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run production smoke check
+        run: scripts/production_smoke_check.sh

@@ -1,0 +1,62 @@
+# Mira Production Fix List
+
+Last updated: 2026-05-01
+
+This list converts the production test failures and blocked checks into concrete work. Priority meanings:
+
+- `P0`: must fix before launch
+- `P1`: should fix before launch or immediately after controlled beta
+- `P2`: quality/scaling improvement
+
+## P0 Fixes
+
+| Status | Area | Fix | Owner Notes |
+| --- | --- | --- | --- |
+| Open | Live backend deploy drift | Deploy backend code that exposes `/v1/debug/config`; production smoke currently fails only on this endpoint. | Local code has the route, live Render returns 404. This is the first thing to fix. |
+| Open | Authenticated E2E | Load Supabase test secrets into CI and run `backend/tests/e2e/test_full_flow.py::test_complete_api_flow` against production/staging. | Required secrets: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET`, anon key. |
+| Open | Composio tenant isolation | Add/run a two-user Gmail integration test proving User A cannot access User B's email/tools. | This addresses the serious privacy issue seen earlier. |
+| Open | Export flow | Verify generated decks export to PDF, PPTX, and Google Slides. Fix OAuth `invalid_client` and silent download failures. | Google client config likely needs production OAuth client and redirect URLs. |
+| Open | Billing unit economics | Verify every LLM/tool action records raw cost, credit charge, markup, account, thread, and provider/model metadata. | Needed to enforce the 100%+ margin pricing plan. |
+| Partially Fixed | CI endpoints | E2E workflow must target Mira/Render URLs, not legacy Kortix URLs. | `.github/workflows/e2e-api-tests.yml` now uses Mira URL variables/defaults. |
+
+## P1 Fixes
+
+| Status | Area | Fix | Owner Notes |
+| --- | --- | --- | --- |
+| Open | Frontend verification | Make frontend lint/typecheck complete reliably in CI and locally. | `apps/frontend/package.json` now uses `eslint .`, but local ESLint/TypeScript still hung in this sandbox. |
+| Open | Test dependencies | Standardize local backend test setup with either `uv` or a documented venv install path. | Current local shell lacks `pytest` and `uv`, so backend unit tests were blocked. |
+| Partially Fixed | CI launch gate | Add smoke check to CI after deploy and fail deploy verification if `/debug/config` is unavailable. | `scripts/production_smoke_check.sh` and `.github/workflows/render-production-smoke.yml` now exist. Still needs live backend deploy fixed. |
+| Open | Runtime env inventory | Ensure Render env vars match `backend/.env.example` and `docs/configuration-inventory.md`. | The config endpoint should become the source of truth once live. |
+| Open | Google/Drive auth | Verify OAuth clients, redirect URLs, scopes, and per-user token storage for Google Slides/Drive. | Required for export and file workflows. |
+| Open | Observability | Confirm logs/traces include account id, thread id, run id, provider, tool name, cost, and error class. | Needed for debugging agent failures and customer support. |
+| Open | Rate limits | Add or verify rate limits for expensive agent, media, scrape, and integration endpoints. | Prevents a single user from burning provider credits. |
+| Open | Account deletion/data retention | Verify user deletion removes or anonymizes account data, files, and integration credentials. | Required for production trust/compliance. |
+
+## P2 Fixes
+
+| Status | Area | Fix | Owner Notes |
+| --- | --- | --- | --- |
+| Open | Slide quality | Improve prompt/tool contract so researched content maps to the selected template framework instead of generic filler. | Important for perceived product quality. |
+| Open | Template media | Replace placeholder template imagery with relevant generated/sourced images or remove placeholders. | Current decks can look templated even when they render. |
+| Open | Research quality | Add source quality rules and citation checks for research/document outputs. | Helps avoid generic or stale output. |
+| Open | Media failure UX | Provider failures should show actionable messages and next steps, not generic apologies. | Especially useful for Daytona/Replicate/OpenRouter incidents. |
+
+## Completed In Repo
+
+| Area | Change |
+| --- | --- |
+| Testing plan | Added `docs/production-testing-plan.md` with launch smoke, integration, billing, and quality checks. |
+| Smoke script | Added `scripts/production_smoke_check.sh` for repeatable live smoke testing. |
+| CI endpoint drift | Updated `.github/workflows/e2e-api-tests.yml` to use Mira/Render URL variables instead of legacy Kortix URLs. |
+| CI runtime config gate | Added `/debug/config` verification to the E2E workflow before authenticated tests run. |
+| CI E2E target | Default E2E workflow now runs the full authenticated API flow instead of only sparse `tests/api` files. |
+| Render smoke workflow | Added `.github/workflows/render-production-smoke.yml` for hourly/manual live Render checks. |
+| Frontend lint script | Replaced `next lint` with direct `eslint .` in `apps/frontend/package.json`. |
+
+## Next Execution Order
+
+1. Deploy backend and re-run `scripts/production_smoke_check.sh`; expected result is all green.
+2. Load Supabase test secrets into CI and run the full authenticated E2E flow.
+3. Run two-user Composio isolation before allowing Gmail/Calendar/Drive integrations in production.
+4. Fix Google OAuth/export flow and verify PDF/PPTX/Google Slides exports.
+5. Verify billing/cost attribution on real agent runs before accepting paid users.
