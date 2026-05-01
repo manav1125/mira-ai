@@ -71,7 +71,7 @@ This plan is designed to answer one question before launch: can a real customer 
 | Pricing | 2x cost markup | Credit charge is at least 100% margin over raw LLM cost | BLOCKED |
 | Plans | Monthly allowance | Free/Pro/Business/Enterprise grant correct monthly credits | BLOCKED |
 | Top-ups | One-time purchase | Stripe payment grants credits exactly once | BLOCKED |
-| Webhooks | Idempotency | Replayed Stripe webhook does not double-credit account | BLOCKED, `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` still need to be added/confirmed in Render |
+| Webhooks | Idempotency | Replayed Stripe webhook does not double-credit account | READY TO RUN, Stripe secret and webhook secret are now present in Render; replay a signed event against `/v1/billing/webhook` |
 | Exhaustion | Low credits | User gets clear warning and cannot silently run expensive agents past limit | BLOCKED |
 | Admin | Usage dashboard | Internal view shows account-level cost, revenue, margin, and provider breakdown | BLOCKED |
 
@@ -80,9 +80,9 @@ This plan is designed to answer one question before launch: can a real customer 
 | Area | Test | Expected Result | Status |
 | --- | --- | --- | --- |
 | Deploy safety | Render services use correct repo/branch | Mira frontend, backend, and Redis all point at `mira-ai` and expected branch | PASS |
-| Env safety | Env inventory is complete | Required env groups are present in Render and documented | PASS FOR CORE, BILLING NEEDS STRIPE SECRET/WEBHOOK CONFIRMATION |
+| Env safety | Env inventory is complete | Required env groups are present in Render and documented | PASS, production `/v1/debug/config` reports zero errors and zero warnings |
 | CI | Config guard | CI fails if required production env contract is missing | PRESENT IN CODE, NEEDS LIVE CONFIRMATION |
-| CI | Backend E2E workflow | Workflow targets Mira Render URLs, not legacy Kortix URLs | FAIL, current workflow still references legacy URLs |
+| CI | Backend E2E workflow | Workflow targets Mira Render URLs, not legacy Kortix URLs | PRESENT IN CODE, dispatch blocked until GitHub PAT has repository `Actions: Read and write` |
 | Observability | Logs and traces | Failed runs include run id, user id, provider, tool, and error class | NEEDS VERIFICATION |
 | Rate limiting | Abuse protection | API and expensive tool endpoints enforce user/account limits | NEEDS VERIFICATION |
 | Data retention | User deletion | Account deletion removes or anonymizes user data and integrations | NEEDS VERIFICATION |
