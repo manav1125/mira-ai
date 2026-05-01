@@ -12,7 +12,7 @@ This list converts the production test failures and blocked checks into concrete
 
 | Status | Area | Fix | Owner Notes |
 | --- | --- | --- | --- |
-| Open | Live backend deploy drift | Deploy backend code that exposes `/v1/debug/config`; production smoke currently fails only on this endpoint. | Local code has the route, live Render returns 404. This is the first thing to fix. |
+| Fixed | Live backend deploy drift | Deploy backend code that exposes `/v1/debug/config`; production smoke currently fails only on this endpoint. | Backend and frontend are live on `8b44113a`; production smoke now passes. |
 | Open | Authenticated E2E | Load Supabase test secrets into CI and run `backend/tests/e2e/test_full_flow.py::test_complete_api_flow` against production/staging. | Required secrets: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET`, anon key. |
 | Open | Composio tenant isolation | Add/run a two-user Gmail integration test proving User A cannot access User B's email/tools. | This addresses the serious privacy issue seen earlier. |
 | Open | Export flow | Verify generated decks export to PDF, PPTX, and Google Slides. Fix OAuth `invalid_client` and silent download failures. | Google client config likely needs production OAuth client and redirect URLs. |
@@ -25,7 +25,8 @@ This list converts the production test failures and blocked checks into concrete
 | --- | --- | --- | --- |
 | Open | Frontend verification | Make frontend lint/typecheck complete reliably in CI and locally. | `apps/frontend/package.json` now uses `eslint .`, but local ESLint/TypeScript still hung in this sandbox. |
 | Open | Test dependencies | Standardize local backend test setup with either `uv` or a documented venv install path. | Current local shell lacks `pytest` and `uv`, so backend unit tests were blocked. |
-| Partially Fixed | CI launch gate | Add smoke check to CI after deploy and fail deploy verification if `/debug/config` is unavailable. | `scripts/production_smoke_check.sh` and `.github/workflows/render-production-smoke.yml` now exist. Still needs live backend deploy fixed. |
+| Fixed | CI launch gate | Add smoke check to CI after deploy and fail deploy verification if `/debug/config` is unavailable. | `scripts/production_smoke_check.sh` and `.github/workflows/render-production-smoke.yml` now exist. Live backend deploy is fixed. |
+| Fixed in Render | Auth hardening | Set `SUPABASE_JWT_SECRET` in Render and CI secrets. | Render backend now reports `/v1/debug/config` status `ok` with zero warnings. Still add this to GitHub Actions secrets for CI E2E. |
 | Open | Runtime env inventory | Ensure Render env vars match `backend/.env.example` and `docs/configuration-inventory.md`. | The config endpoint should become the source of truth once live. |
 | Open | Google/Drive auth | Verify OAuth clients, redirect URLs, scopes, and per-user token storage for Google Slides/Drive. | Required for export and file workflows. |
 | Open | Observability | Confirm logs/traces include account id, thread id, run id, provider, tool name, cost, and error class. | Needed for debugging agent failures and customer support. |
@@ -55,8 +56,8 @@ This list converts the production test failures and blocked checks into concrete
 
 ## Next Execution Order
 
-1. Deploy backend and re-run `scripts/production_smoke_check.sh`; expected result is all green.
-2. Load Supabase test secrets into CI and run the full authenticated E2E flow.
+1. Add `PRODUCTION_SUPABASE_JWT_SECRET` to GitHub Actions secrets for CI E2E.
+2. Load/confirm the rest of the Supabase test secrets in CI and run the full authenticated E2E flow.
 3. Run two-user Composio isolation before allowing Gmail/Calendar/Drive integrations in production.
 4. Fix Google OAuth/export flow and verify PDF/PPTX/Google Slides exports.
 5. Verify billing/cost attribution on real agent runs before accepting paid users.

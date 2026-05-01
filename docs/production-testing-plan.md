@@ -20,12 +20,12 @@ This plan is designed to answer one question before launch: can a real customer 
 | --- | --- | --- | --- | --- |
 | Live backend | Health endpoint | `curl https://suna-backend-3teh.onrender.com/v1/health` | PASS | Returned `{"status":"ok"}` with instance id. |
 | Live backend | Redis endpoint | `curl https://suna-backend-3teh.onrender.com/v1/debug/redis` | PASS | Redis reported healthy, low latency, active pool stats. |
-| Live backend | Config endpoint | `curl https://suna-backend-3teh.onrender.com/v1/debug/config` | FAIL | Returned 404. Local code defines this route, so live deploy/config drift remains a P0 blocker. |
+| Live backend | Config endpoint | `curl https://suna-backend-3teh.onrender.com/v1/debug/config` | PASS | Endpoint is live. Report has zero errors and zero warnings. |
 | Live frontend | Frontend availability | `curl -I https://mira-frontend-d85v.onrender.com` | PASS | Returned HTTP 200. |
 | Live security | Unauthenticated threads endpoint | `curl https://suna-backend-3teh.onrender.com/v1/threads` | PASS | Returned 401 as expected. |
 | Live tools | Canvas/media health | `curl https://suna-backend-3teh.onrender.com/v1/canvas-ai/health` | PASS | OpenRouter and Replicate reported configured. |
 | Live tools | Composio health | `curl https://suna-backend-3teh.onrender.com/v1/composio/health` | PASS | Returned healthy. |
-| Live smoke suite | Repeatable smoke script | `scripts/production_smoke_check.sh` | FAIL | One failure: live `/v1/debug/config` returns 404. |
+| Live smoke suite | Repeatable smoke script | `scripts/production_smoke_check.sh` | PASS | All public smoke checks pass. |
 | Backend code | Syntax compilation | `python3 -m compileall ...` | PASS | Key backend files compiled successfully. |
 | Backend tests | Config/pricing unit tests | `python3 -m pytest ...` | BLOCKED | `pytest` is not installed in the active Python environment and `uv` is not installed. |
 | Frontend tests | TypeScript check | `pnpm --dir apps/frontend exec tsc --noEmit --pretty false` | BLOCKED | Command produced no output and did not complete within the smoke-test window. |
@@ -38,7 +38,7 @@ This plan is designed to answer one question before launch: can a real customer 
 | --- | --- | --- | --- | --- |
 | Availability | Frontend loads | Open production dashboard and hard refresh | App shell loads, no infinite skeletons | PARTIAL PASS |
 | Availability | Backend health | Call `/v1/health` | HTTP 200 and `status=ok` | PASS |
-| Config | Runtime config contract | Call `/v1/debug/config` after deploy | HTTP 200 and required provider groups reported | FAIL |
+| Config | Runtime config contract | Call `/v1/debug/config` after deploy | HTTP 200 and required provider groups reported | PASS |
 | Database | Authenticated thread list | Sign in and load `/dashboard` | Threads list loads without DB/connection error | BLOCKED |
 | Chat loop | Send basic message | Create new chat, send "write a 3 sentence summary of Mira" | Assistant replies and run completes | BLOCKED |
 | Agent loop | Start tool-using run | Ask for a short research summary with one web source | Web search/scrape action completes and final answer appears | BLOCKED |
@@ -136,7 +136,7 @@ curl -I -fsS https://mira-frontend-d85v.onrender.com
 
 Do not mark production launch-ready until these are green:
 
-1. `/v1/debug/config` returns 200 on the live backend.
+1. `SUPABASE_JWT_SECRET` is set in Render and matching production/staging CI secrets are available.
 2. Authenticated full E2E flow passes against production or staging.
 3. Composio two-user isolation test passes.
 4. Google Slides, PDF, and PPTX exports work from a generated deck.
