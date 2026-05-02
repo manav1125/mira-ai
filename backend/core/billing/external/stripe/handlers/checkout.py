@@ -22,7 +22,7 @@ class CheckoutHandler:
         logger.info(f"[WEBHOOK] Checkout session completed - ID: {session.get('id')}, Has subscription: {bool(session.get('subscription'))}, Metadata: {session.get('metadata', {})}")
         
         if session.get('metadata', {}).get('type') == 'credit_purchase':
-            await CheckoutHandler._handle_credit_purchase(session)
+            await CheckoutHandler._handle_credit_purchase(session, stripe_event_id=getattr(event, "id", None))
         elif session.get('metadata', {}).get('type') == 'yearly_upgrade':
             await CheckoutHandler._handle_yearly_upgrade_payment(session)
         elif session.get('subscription'):
@@ -32,7 +32,7 @@ class CheckoutHandler:
             logger.warning(f"[WEBHOOK] Checkout session has neither credit_purchase type nor subscription")
 
     @staticmethod
-    async def _handle_credit_purchase(session):
+    async def _handle_credit_purchase(session, stripe_event_id: str = None):
         metadata = session.get('metadata', {})
         account_id = metadata.get('account_id')
         credit_amount_str = metadata.get('credit_amount')
@@ -47,6 +47,12 @@ class CheckoutHandler:
         
         try:
             current_state = await billing_repo.get_credit_account_balances(account_id)
+            payment_idempotency_source = (
+                session.get('payment_intent')
+                or metadata.get('purchase_id')
+                or session.get('id')
+                or stripe_event_id
+            )
             
             if session.payment_intent:
                 await billing_repo.update_purchase_by_payment_intent(
@@ -76,7 +82,8 @@ class CheckoutHandler:
                 account_id=account_id,
                 amount=credit_amount,
                 is_expiring=False,
-                description=f"Purchased ${credit_amount} credits"
+                description=f"Purchased ${credit_amount} credits",
+                stripe_event_id=f"credit_purchase:{payment_idempotency_source}" if payment_idempotency_source else None
             )
             
             if not result.get('success'):

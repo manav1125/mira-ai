@@ -30,6 +30,8 @@ from core.services import redis
 from core.ai_models import model_manager
 from core.api_models import UnifiedAgentStartResponse
 from core.services.supabase import DBConnection
+from core.services.api_keys_api import get_account_id_from_user_id
+from core.utils.api_rate_limiter import check_agent_start_rate_limit
 
 # Import from new modules
 from core.agents.runner import execute_agent_run
@@ -44,6 +46,21 @@ _cancellation_events: Dict[str, asyncio.Event] = {}
 # ============================================================================
 # Helper Functions
 # ============================================================================
+
+async def _resolve_primary_account_id(user_id: str) -> str:
+    """Prefer the user's personal account while preserving legacy user-scoped flows."""
+    try:
+        return str(await get_account_id_from_user_id(user_id))
+    except HTTPException as exc:
+        logger.warning(
+            f"Falling back to legacy user_id for agent account resolution: {user_id} "
+            f"(status={exc.status_code})"
+        )
+    except Exception as exc:
+        logger.warning(
+            f"Falling back to legacy user_id for agent account resolution: {user_id} ({exc})"
+        )
+    return user_id
 
 async def _get_agent_run_with_access_check(agent_run_id: str, user_id: str, require_write_access: bool = False):
     """Get agent run with access check."""
@@ -319,6 +336,7 @@ async def start_agent_run(
     emit_timing: bool = False,
     mode: Optional[str] = None,
     files_data: Optional[List[Tuple[str, bytes, str, Optional[str]]]] = None,
+    requesting_user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     from core.agents.config import load_agent_config_fast
     from core.agents.pipeline.slot_manager import (
@@ -550,6 +568,7 @@ async def start_agent_run(
         memory_enabled=memory_enabled,
         is_new_thread=is_new_thread,
         mode=mode,
+        requesting_user_id=requesting_user_id,
         cancellation_event=cancellation_event,
         skip_limits_check=skip_limits_check,
     ))
@@ -576,6 +595,7 @@ async def _background_setup_and_execute(
     memory_enabled: Optional[bool],
     is_new_thread: bool,
     mode: Optional[str],
+    requesting_user_id: Optional[str],
     cancellation_event: asyncio.Event,
     skip_limits_check: bool = False,
 ):
@@ -705,6 +725,7 @@ async def _background_setup_and_execute(
                     model_name=effective_model,
                     agent_config=agent_config,
                     account_id=account_id,
+                    requesting_user_id=requesting_user_id,
                     cancellation_event=cancellation_event,
                     is_new_thread=is_new_thread,
                     user_message=final_message_content,
@@ -726,10 +747,20 @@ async def _background_setup_and_execute(
         except asyncio.CancelledError:
             final_status = "cancelled"
             cleanup_reason = "Task cancelled"
+            try:
+                from core.agents.runner import update_agent_run_status
+                await update_agent_run_status(agent_run_id, "stopped", error=cleanup_reason, account_id=account_id)
+            except Exception as e:
+                logger.warning(f"[LIFECYCLE] Failed to update status on cancellation: {e}")
         except Exception as e:
             final_status = "failed"
             cleanup_reason = f"{type(e).__name__}: {str(e)[:100]}"
             logger.error(f"[LIFECYCLE] EXCEPTION agent_run={agent_run_id} error={cleanup_reason}")
+            try:
+                from core.agents.runner import update_agent_run_status
+                await update_agent_run_status(agent_run_id, "failed", error=cleanup_reason, account_id=account_id)
+            except Exception as update_err:
+                logger.warning(f"[LIFECYCLE] Failed to update status on exception: {update_err}")
         finally:
             try:
                 from core.agents.pipeline.slot_manager import release_slot
@@ -784,7 +815,7 @@ async def unified_agent_start(
     user_id: str = Depends(verify_and_get_user_id_from_jwt)
 ):
     client = await db.client
-    account_id = user_id
+    account_id = await _resolve_primary_account_id(user_id)
     is_optimistic = optimistic and optimistic.lower() == 'true'
     
     if is_optimistic:
@@ -824,6 +855,18 @@ async def unified_agent_start(
         if role_info.get('role') == 'super_admin':
             skip_limits = True
             emit_timing = request.headers.get("X-Emit-Timing", "").lower() == "true"
+
+    if not skip_limits:
+        rate_limit = await check_agent_start_rate_limit(account_id=account_id, user_id=user_id)
+        if not rate_limit.allowed:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    f"Too many agent starts. Please wait {rate_limit.retry_after_seconds} seconds "
+                    "before trying again."
+                ),
+                headers={"Retry-After": str(rate_limit.retry_after_seconds)},
+            )
     
     try:
         if thread_id and not is_optimistic:
@@ -856,6 +899,7 @@ async def unified_agent_start(
             emit_timing=emit_timing,
             mode=mode,
             files_data=files_data if files_data else None,
+            requesting_user_id=user_id,
         )
         
         response = {

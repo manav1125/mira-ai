@@ -341,7 +341,11 @@ async def set_default_credential_profile(
             raise HTTPException(status_code=404, detail="Profile not found")
         
         return {"message": "Profile set as default successfully"}
-        
+
+    except ProfileAccessDeniedError:
+        raise HTTPException(status_code=403, detail="Access denied to profile")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error setting default profile: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -360,7 +364,11 @@ async def delete_credential_profile(
             raise HTTPException(status_code=404, detail="Profile not found")
         
         return {"message": "Profile deleted successfully"}
-        
+
+    except ProfileAccessDeniedError:
+        raise HTTPException(status_code=403, detail="Access denied to profile")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error deleting profile: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -515,6 +523,8 @@ async def get_composio_mcp_url(
         
     except HTTPException:
         raise
+    except ProfileAccessDeniedError:
+        raise HTTPException(status_code=403, detail="Access denied to profile")
     except Exception as e:
         logger.error(f"Error getting Composio MCP URL: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error") 
+        raise HTTPException(status_code=500, detail="Internal server error")

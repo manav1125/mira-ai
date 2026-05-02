@@ -55,6 +55,14 @@ class ComposioProfileService:
     def _generate_config_hash(self, config_json: str) -> str:
         return hashlib.sha256(config_json.encode()).hexdigest()
 
+    def _allow_unscoped_profile_recovery(self) -> bool:
+        return os.getenv("COMPOSIO_ALLOW_UNSCOPED_PROFILE_RECOVERY", "false").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+
     def _parse_timestamp(self, value: Optional[str]) -> Optional[datetime]:
         if not value:
             return None
@@ -340,6 +348,13 @@ class ComposioProfileService:
         try:
             return row, self._decrypt_config(row['encrypted_config'])
         except Exception as decrypt_error:
+            if not self._allow_unscoped_profile_recovery():
+                logger.warning(
+                    f"[COMPOSIO PROFILE RECOVERY] Profile {row.get('profile_id')} could not be decrypted. "
+                    "Unscoped automatic recovery is disabled; user must reconnect the integration."
+                )
+                return row, None
+
             repaired_row = await self._repair_profile_row_without_decrypt(row)
             if repaired_row:
                 try:
@@ -471,7 +486,7 @@ class ComposioProfileService:
             profile_data, config = await self._resolve_row_and_config(result.data[0])
             if not config:
                 raise ValueError(
-                    f"Profile {profile_id} could not be decrypted and could not be auto-repaired. "
+                    f"Profile {profile_id} could not be decrypted. "
                     "Reconnect the integration and try again."
                 )
             
@@ -509,7 +524,7 @@ class ComposioProfileService:
             profile_data, config = await self._resolve_row_and_config(result.data[0])
             if not config:
                 raise ValueError(
-                    f"Profile {profile_id} could not be decrypted and could not be auto-repaired. "
+                    f"Profile {profile_id} could not be decrypted. "
                     "Reconnect the integration and try again."
                 )
 
