@@ -83,7 +83,7 @@ class ProfileService:
         
         success = await credentials_repo.create_credential_profile(
             profile_id, account_id, mcp_qualified_name, 
-            profile_name, display_name, encoded_config
+            profile_name, display_name, encoded_config, config_hash
         )
         
         if not success:
