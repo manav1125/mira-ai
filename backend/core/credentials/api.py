@@ -266,37 +266,6 @@ async def get_user_credential_profiles(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.get("/credential-profiles/{mcp_qualified_name:path}", response_model=List[CredentialProfileResponse])
-async def get_credential_profiles_for_mcp(
-    mcp_qualified_name: str,
-    user_id: str = Depends(verify_and_get_user_id_from_jwt)
-):
-    try:
-        decoded_name = decode_mcp_qualified_name(mcp_qualified_name)
-        
-        profile_service = get_profile_service(db)
-        profiles = await profile_service.get_profiles(user_id, decoded_name)
-        
-        return [
-            CredentialProfileResponse(
-                profile_id=profile.profile_id,
-                mcp_qualified_name=profile.mcp_qualified_name,
-                profile_name=profile.profile_name,
-                display_name=profile.display_name,
-                config_keys=extract_config_keys(profile.config),
-                is_active=profile.is_active,
-                is_default=profile.is_default,
-                created_at=profile.created_at.isoformat() if profile.created_at else None,
-                updated_at=profile.updated_at.isoformat() if profile.updated_at else None
-            )
-            for profile in profiles
-        ]
-        
-    except Exception as e:
-        logger.error(f"Error getting credential profiles for MCP: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
 @router.get("/credential-profiles/profile/{profile_id}", response_model=CredentialProfileResponse)
 async def get_credential_profile(
     profile_id: str,
@@ -325,6 +294,37 @@ async def get_credential_profile(
         raise HTTPException(status_code=403, detail="Access denied to profile")
     except Exception as e:
         logger.error(f"Error getting credential profile: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/credential-profiles/{mcp_qualified_name:path}", response_model=List[CredentialProfileResponse])
+async def get_credential_profiles_for_mcp(
+    mcp_qualified_name: str,
+    user_id: str = Depends(verify_and_get_user_id_from_jwt)
+):
+    try:
+        decoded_name = decode_mcp_qualified_name(mcp_qualified_name)
+        
+        profile_service = get_profile_service(db)
+        profiles = await profile_service.get_profiles(user_id, decoded_name)
+        
+        return [
+            CredentialProfileResponse(
+                profile_id=profile.profile_id,
+                mcp_qualified_name=profile.mcp_qualified_name,
+                profile_name=profile.profile_name,
+                display_name=profile.display_name,
+                config_keys=extract_config_keys(profile.config),
+                is_active=profile.is_active,
+                is_default=profile.is_default,
+                created_at=profile.created_at.isoformat() if profile.created_at else None,
+                updated_at=profile.updated_at.isoformat() if profile.updated_at else None
+            )
+            for profile in profiles
+        ]
+        
+    except Exception as e:
+        logger.error(f"Error getting credential profiles for MCP: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
