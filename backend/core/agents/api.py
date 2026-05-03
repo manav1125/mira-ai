@@ -457,30 +457,32 @@ async def start_agent_run(
         else:
             logger.warning(f"⚠️ [AGENT_START] Failed to resolve sandbox for file uploads (project {project_id})")
     
-    elif is_new_thread:
-        # NO FILES but NEW THREAD: Start sandbox creation in background (non-blocking)
-        # This ensures sandbox is ready by the time user checks Files tab
+    elif is_new_thread and os.getenv("PRECREATE_SANDBOX_FOR_NEW_THREADS", "false").lower() == "true":
+        # Optional warmup only. Tool execution resolves a sandbox on demand, and
+        # pre-creating sandboxes for every new chat can starve/complicate the
+        # critical path when the sandbox provider is slow.
         async def create_sandbox_background(proj_id: str, acc_id: str, db_client):
             try:
-                # First ensure project exists
+                await asyncio.sleep(1)
                 placeholder_name = f"{prompt[:30]}..." if len(prompt) > 30 else prompt if prompt else "Untitled"
                 try:
                     await threads_repo.create_project(proj_id, acc_id, placeholder_name)
                 except Exception:
-                    pass  # May already exist
-                
-                # Then create sandbox
+                    pass
+
                 sandbox_info = await resolve_sandbox(proj_id, acc_id, db_client, require_started=True)
                 if sandbox_info:
                     logger.info(f"✅ [BACKGROUND] Created sandbox {sandbox_info.sandbox_id} for project {proj_id}")
                 else:
                     logger.warning(f"⚠️ [BACKGROUND] Failed to create sandbox for project {proj_id}")
             except Exception as e:
-                logger.error(f"❌ [BACKGROUND] Error creating sandbox for project {proj_id}: {e}")
-        
-        # Fire and forget - don't wait for sandbox creation
-        asyncio.create_task(create_sandbox_background(project_id, account_id, client))
-        logger.info(f"🚀 [AGENT_START] Started background sandbox creation for new project {project_id}")
+                logger.error(f"❌ [BACKGROUND] Error creating sandbox for {proj_id}: {e}")
+
+        task = asyncio.create_task(create_sandbox_background(project_id, account_id, client))
+        task.add_done_callback(
+            lambda t: logger.warning(f"Sandbox warmup task failed: {t.exception()}") if t.exception() else None
+        )
+        logger.info(f"🚀 [AGENT_START] Started optional sandbox warmup for new project {project_id}")
     
     slot_reservation = await reserve_slot(
         account_id=account_id,
@@ -659,6 +661,20 @@ async def _background_setup_and_execute(
             db_start = time.time()
             try:
                 if is_new_thread:
+                    from core.utils.instance import get_instance_id
+                    run_metadata = {
+                        "model_name": effective_model,
+                        "actual_user_id": requesting_user_id or account_id,
+                        "instance_id": get_instance_id(),
+                    }
+                    if metadata:
+                        run_metadata.update(metadata)
+                    if agent_config:
+                        run_metadata["agent_config"] = {
+                            k: v for k, v in agent_config.items()
+                            if k not in ("system_prompt",)
+                        }
+
                     await create_new_thread_records(
                         project_id=project_id,
                         thread_id=thread_id,
@@ -667,7 +683,7 @@ async def _background_setup_and_execute(
                         agent_run_id=agent_run_id,
                         message_content=final_message_content,
                         agent_config=agent_config,
-                        metadata=metadata,
+                        metadata=run_metadata,
                         memory_enabled=memory_enabled,
                     )
                     from core.agents.pipeline.slot_manager import (
@@ -694,10 +710,15 @@ async def _background_setup_and_execute(
                 logger.debug(f"⏱️ [BG] DB writes completed: {(time.time() - db_start)*1000:.1f}ms")
             except Exception as e:
                 logger.error(f"❌ [BG] DB write failed: {e}")
+                raise
         
         log_run_start(agent_run_id, thread_id)
         
-        db_task = asyncio.create_task(do_db_writes())
+        # Persist the thread/user message/run before starting the agent. Running
+        # the LLM pipeline in parallel with first-write persistence made the UI
+        # look fast, but a setup failure could leave a visible thread spinning
+        # forever with no assistant/tool events.
+        await asyncio.wait_for(do_db_writes(), timeout=30.0)
         logger.info(f"✅ [BG] Starting agent execution")
 
         if cache_prep_task:
@@ -768,13 +789,6 @@ async def _background_setup_and_execute(
             except Exception as slot_err:
                 logger.error(f"[SLOT] Failed to release slot for {agent_run_id}: {slot_err}")
                 cleanup_errors.append(f"slot_release: {slot_err}")
-            
-            try:
-                await asyncio.wait_for(db_task, timeout=30.0)
-            except asyncio.TimeoutError:
-                logger.warning(f"⚠️ [BG] DB writes timed out after 30s")
-            except Exception as e:
-                logger.warning(f"⚠️ [BG] DB writes failed: {e}")
             
             was_in_events = _cancellation_events.pop(agent_run_id, None) is not None
             if not was_in_events:

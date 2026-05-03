@@ -166,6 +166,10 @@ async def test_complete_api_flow(client: httpx.AsyncClient, test_config: E2ETest
         
         print(f"✅ Stream received {len(chunks)} chunks, completed={completed}")
         assert len(chunks) > 0, "Should receive SSE chunks"
+        assert completed, (
+            "Agent stream must reach a terminal completed/stopped status. "
+            "Receiving only initial status/ping chunks is not a successful E2E run."
+        )
         
     except asyncio.TimeoutError:
         pytest.fail(f"Stream timed out after {test_config.agent_timeout}s")
