@@ -197,8 +197,15 @@ class JITLoader:
                 schema = tool_info.schema if tool_info else None
                 
                 if schema:
-                    account_id = getattr(mcp_loader, 'agent_config', {}).get('account_id')
-                    tool_wrapper = await JITLoader._create_mcp_tool_wrapper(tool_name, schema, tool_info, account_id=account_id)
+                    account_id = getattr(mcp_loader, 'agent_config', {}).get('account_id') or getattr(thread_manager, 'account_id', None)
+                    requesting_user_id = getattr(thread_manager, 'requesting_user_id', None)
+                    tool_wrapper = await JITLoader._create_mcp_tool_wrapper(
+                        tool_name,
+                        schema,
+                        tool_info,
+                        account_id=account_id,
+                        requesting_user_id=requesting_user_id,
+                    )
                     
                     from core.agentpress.tool import ToolSchema, SchemaType
                     
@@ -248,15 +255,32 @@ class JITLoader:
             )
     
     @staticmethod
-    async def _create_mcp_tool_wrapper(tool_name: str, schema: Dict, tool_info, account_id: str = None):
+    async def _create_mcp_tool_wrapper(
+        tool_name: str,
+        schema: Dict,
+        tool_info,
+        account_id: str = None,
+        requesting_user_id: str = None,
+    ):
         from core.jit.mcp_tool_wrapper import MCPToolExecutor
 
         class MCPToolWrapper:
-            def __init__(self, tool_name: str, schema: Dict, tool_info, account_id: str = None):
+            def __init__(
+                self,
+                tool_name: str,
+                schema: Dict,
+                tool_info,
+                account_id: str = None,
+                requesting_user_id: str = None,
+            ):
                 self.tool_name = tool_name
                 self.schema = schema
                 self.tool_info = tool_info
-                self._executor = MCPToolExecutor(tool_info.mcp_config, account_id=account_id)
+                self._executor = MCPToolExecutor(
+                    tool_info.mcp_config,
+                    account_id=account_id,
+                    requesting_user_id=requesting_user_id,
+                )
 
             def __getattr__(self, method_name: str):
                 """Handle dynamic method calls for MCP tools (same pattern as legacy MCPToolWrapper)"""
@@ -275,7 +299,13 @@ class JITLoader:
                 """Return tool schema for registration"""
                 return self.schema
 
-        return MCPToolWrapper(tool_name, schema, tool_info, account_id=account_id)
+        return MCPToolWrapper(
+            tool_name,
+            schema,
+            tool_info,
+            account_id=account_id,
+            requesting_user_id=requesting_user_id,
+        )
     
     @staticmethod
     async def activate_multiple_with_mcp(

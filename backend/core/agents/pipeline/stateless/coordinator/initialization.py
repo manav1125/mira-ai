@@ -32,6 +32,7 @@ class ManagerInitializer:
             project_id=ctx.project_id,
             thread_id=ctx.thread_id,
             account_id=ctx.account_id,
+            requesting_user_id=ctx.requesting_user_id,
             jit_config=jit_config
         )
 

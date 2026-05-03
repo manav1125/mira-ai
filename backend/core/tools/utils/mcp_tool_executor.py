@@ -96,10 +96,18 @@ def is_safe_url(url: str) -> tuple[bool, str]:
 
 
 class MCPToolExecutor:
-    def __init__(self, custom_tools: Dict[str, Dict[str, Any]], tool_wrapper=None, db=None, account_id: str = None):
+    def __init__(
+        self,
+        custom_tools: Dict[str, Dict[str, Any]],
+        tool_wrapper=None,
+        db=None,
+        account_id: str = None,
+        requesting_user_id: str = None,
+    ):
         self.mcp_manager = mcp_service
         self.custom_tools = custom_tools
         self.account_id = account_id
+        self.requesting_user_id = requesting_user_id
         self.tool_wrapper = tool_wrapper
         self.db = db
     
@@ -144,6 +152,7 @@ class MCPToolExecutor:
                     db = DBConnection()
                 else:
                     db = self.db
+                await self._assert_safe_composio_scope(db)
                 profile_service = ComposioProfileService(db)
                 mcp_url = await profile_service.get_mcp_url_for_runtime(profile_id, account_id=self.account_id)
                 modified_tool_info = tool_info.copy()
@@ -218,6 +227,37 @@ class MCPToolExecutor:
         except Exception as e:
             logger.error(f"Error executing HTTP MCP tool: {str(e)}")
             return self._create_error_result(f"Error executing HTTP tool: {str(e)}")
+
+    async def _assert_safe_composio_scope(self, db) -> None:
+        if not self.account_id:
+            raise PermissionError("Composio integration access requires an account context.")
+
+        if not self.requesting_user_id:
+            raise PermissionError(
+                "Composio integrations are temporarily disabled for runs without an authenticated user context."
+            )
+
+        client = await db.client
+        result = await client.schema('basejump').table('accounts').select(
+            'id, personal_account, primary_owner_user_id'
+        ).eq('id', self.account_id).limit(1).execute()
+
+        if not result.data:
+            if str(self.account_id) == str(self.requesting_user_id):
+                return
+            raise PermissionError("Unable to verify Composio account ownership for this run.")
+
+        account = result.data[0]
+        if not account.get('personal_account'):
+            raise PermissionError(
+                "Composio integrations are temporarily disabled for shared accounts while per-user isolation is being fixed."
+            )
+
+        owner_user_id = account.get('primary_owner_user_id')
+        if owner_user_id and str(owner_user_id) != str(self.requesting_user_id):
+            raise PermissionError(
+                "Composio integrations are only available to the owner of the connected personal account."
+            )
     
     async def _execute_json_tool(self, tool_name: str, arguments: Dict[str, Any], tool_info: Dict[str, Any]) -> ToolResult:
         custom_config = tool_info['custom_config']
