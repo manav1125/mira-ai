@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Separator } from '@/components/ui/separator';
 import { toast } from '@/lib/toast';
 import { notificationAPI, type NotificationSettings } from '@/lib/api/notifications';
-import { isStagingMode } from '@/lib/config';
+import { isNotificationModeEnabled } from '@/lib/config';
 
 export function NotificationSettingsPanel() {
   const [settings, setSettings] = useState<NotificationSettings | null>(null);
@@ -17,7 +17,7 @@ export function NotificationSettingsPanel() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (isStagingMode()) {
+    if (isNotificationModeEnabled()) {
       loadSettings();
     } else {
       setLoading(false);
@@ -60,7 +60,7 @@ export function NotificationSettingsPanel() {
     try {
       await notificationAPI.sendTestNotification(
         'Test Notification',
-        'This is a test notification from VentureVerse. If you see this, your notifications are working!'
+        'This is a test notification from Mira. If you see this, your notifications are working!'
       );
       toast.success('Test notification sent!');
     } catch (error) {
@@ -285,4 +285,3 @@ export function NotificationSettingsPanel() {
     </div>
   );
 }
-

@@ -28,6 +28,7 @@ This list converts the production test failures and blocked checks into concrete
 | Fixed | CI launch gate | Add smoke check to CI after deploy and fail deploy verification if `/debug/config` is unavailable. | `scripts/production_smoke_check.sh` and `.github/workflows/render-production-smoke.yml` now exist. Live backend deploy is fixed. |
 | Fixed in Render | Auth hardening | Set `SUPABASE_JWT_SECRET` in Render and CI secrets. | Render backend now reports `/v1/debug/config` status `ok` with zero warnings. Still add this to GitHub Actions secrets for CI E2E. |
 | Open | Runtime env inventory | Ensure Render env vars match `backend/.env.example` and `docs/configuration-inventory.md`. | The config endpoint should become the source of truth once live. |
+| In Progress | Feature readiness inventory | Add a product-level readiness endpoint for optional modules such as Google export, Composio, Vapi, Novu, RevenueCat, Reality Defender, memory, media, research, and sandbox pool. | `/v1/debug/features` is implemented in code and added to smoke checks; deploy and use it as the optional-feature launch dashboard. |
 | Ready for QA | Google/Drive auth | Verify OAuth clients, redirect URLs, scopes, and per-user token storage for Google Slides/Drive. | Backend auth URL generation returns `200` with Google host and current Render callback. Test with current Render redirect now; repeat after final domain cutover. |
 | Fixed in Render | Stripe env completion | Add/confirm `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and the agreed launch tier price IDs in Render. | Launch tier/top-up price IDs plus Stripe keys are set in Render. Stripe webhook endpoint now points to `/v1/billing/webhook`; signed smoke replay returned `200`. |
 | Fixed | Stripe catalog alignment | Align Stripe product descriptions/price IDs with agreed tiers. | Created new Stripe products/prices for Plus 1,000 credits, Pro 2,500 credits, Ultra 10,000 credits, plus top-ups. Render now points at these price IDs. |
@@ -65,7 +66,8 @@ This list converts the production test failures and blocked checks into concrete
 ## Next Execution Order
 
 1. Apply `backend/supabase/migrations/20260502000000_cleanup_sensitive_integrations_on_account_delete.sql` with SQL-capable Supabase access.
-2. Run the real two-account Gmail/Composio QA using two browser profiles and two Gmail accounts.
-3. Run current Render export QA for PDF, PPTX, and Google Slides; repeat after final domain/OAuth cutover.
-4. Spot-check a live paid/credit-consuming agent run for account/thread/provider/model/cost metadata.
-5. Add provider-specific rate limits for media, scrape, and expensive integration endpoints.
+2. Deploy `/v1/debug/features` and use it to classify optional modules as configured, partial, not configured, or disabled.
+3. Run the real two-account Gmail/Composio QA using two browser profiles and two Gmail accounts.
+4. Run current Render export QA for PDF, PPTX, and Google Slides; repeat after final domain/OAuth cutover.
+5. Spot-check a live paid/credit-consuming agent run for account/thread/provider/model/cost metadata.
+6. Add provider-specific rate limits for media, scrape, and expensive integration endpoints.

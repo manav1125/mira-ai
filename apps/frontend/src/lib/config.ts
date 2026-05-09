@@ -28,6 +28,7 @@ interface Config {
   ENV_MODE: EnvMode;
   IS_LOCAL: boolean;
   IS_STAGING: boolean;
+  IS_PRODUCTION: boolean;
   SUBSCRIPTION_TIERS: SubscriptionTiers;
 }
 
@@ -87,6 +88,7 @@ export const config: Config = {
   ENV_MODE: currentEnvMode,
   IS_LOCAL: currentEnvMode === EnvMode.LOCAL,
   IS_STAGING: currentEnvMode === EnvMode.STAGING,
+  IS_PRODUCTION: currentEnvMode === EnvMode.PRODUCTION,
   SUBSCRIPTION_TIERS: TIERS,  // Same tiers for all environments
 };
 
@@ -99,5 +101,9 @@ export const isStagingMode = (): boolean => {
 };
 
 export const isProductionMode = (): boolean => {
-  return config.ENV_MODE === EnvMode.PRODUCTION;
+  return config.IS_PRODUCTION;
+};
+
+export const isNotificationModeEnabled = (): boolean => {
+  return (config.IS_STAGING || config.IS_PRODUCTION) && Boolean(process.env.NEXT_PUBLIC_NOVU_APP_IDENTIFIER);
 };

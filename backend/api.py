@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from core.utils.config import config, EnvMode
 import asyncio
 from core.utils.logger import logger, structlog
-from core.utils.config_validation import validate_runtime_configuration, should_fail_startup
+from core.utils.config_validation import validate_feature_readiness, validate_runtime_configuration, should_fail_startup
 import time
 from collections import OrderedDict
 import os
@@ -577,6 +577,15 @@ async def redis_health_endpoint():
 @api_router.get("/debug/config", summary="Runtime Configuration Report", operation_id="runtime_config_report", tags=["system"])
 async def runtime_config_report():
     report = validate_runtime_configuration()
+    report["instance_id"] = instance_id
+    report["timestamp"] = datetime.now(timezone.utc).isoformat()
+    status_code = 200 if report["status"] != "error" else 503
+    return JSONResponse(status_code=status_code, content=report)
+
+
+@api_router.get("/debug/features", summary="Feature Readiness Report", operation_id="feature_readiness_report", tags=["system"])
+async def feature_readiness_report():
+    report = validate_feature_readiness()
     report["instance_id"] = instance_id
     report["timestamp"] = datetime.now(timezone.utc).isoformat()
     status_code = 200 if report["status"] != "error" else 503

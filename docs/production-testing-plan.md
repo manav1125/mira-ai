@@ -21,6 +21,7 @@ This plan is designed to answer one question before launch: can a real customer 
 | Live backend | Health endpoint | `curl https://suna-backend-3teh.onrender.com/v1/health` | PASS | Returned `{"status":"ok"}` with instance id. |
 | Live backend | Redis endpoint | `curl https://suna-backend-3teh.onrender.com/v1/debug/redis` | PASS | Redis reported healthy, low latency, active pool stats. |
 | Live backend | Config endpoint | `curl https://suna-backend-3teh.onrender.com/v1/debug/config` | PASS | Endpoint is live. Report has zero errors and zero warnings. |
+| Live backend | Feature readiness endpoint | `curl https://suna-backend-3teh.onrender.com/v1/debug/features` | NEW | Reports optional modules as configured, partial, not configured, or disabled without exposing secrets. |
 | Live frontend | Frontend availability | `curl -I https://mira-frontend-d85v.onrender.com` | PASS | Returned HTTP 200. |
 | Live security | Unauthenticated threads endpoint | `curl https://suna-backend-3teh.onrender.com/v1/threads` | PASS | Returned 401 as expected. |
 | Live tools | Canvas/media health | `curl https://suna-backend-3teh.onrender.com/v1/canvas-ai/health` | PASS | OpenRouter and Replicate reported configured. |
@@ -41,6 +42,7 @@ This plan is designed to answer one question before launch: can a real customer 
 | Availability | Frontend loads | Open production dashboard and hard refresh | App shell loads, no infinite skeletons | PARTIAL PASS |
 | Availability | Backend health | Call `/v1/health` | HTTP 200 and `status=ok` | PASS |
 | Config | Runtime config contract | Call `/v1/debug/config` after deploy | HTTP 200 and required provider groups reported | PASS |
+| Config | Feature readiness contract | Call `/v1/debug/features` after deploy | HTTP 200 and optional launch features are categorized | AUTOMATED |
 | Database | Authenticated thread list | Sign in and load `/dashboard` | Threads list loads without DB/connection error | NEEDS MANUAL QA |
 | Chat loop | Send basic message | Create new chat, send "write a 3 sentence summary of Mira" | Assistant replies and run completes | NEEDS MANUAL QA |
 | Agent loop | Start tool-using run | Ask for a short research summary with one web source | Web search/scrape action completes and final answer appears | NEEDS MANUAL QA |
@@ -146,6 +148,7 @@ scripts/production_smoke_check.sh
 curl -fsS https://suna-backend-3teh.onrender.com/v1/health
 curl -fsS https://suna-backend-3teh.onrender.com/v1/debug/redis
 curl -fsS https://suna-backend-3teh.onrender.com/v1/debug/config
+curl -fsS https://suna-backend-3teh.onrender.com/v1/debug/features
 curl -I -fsS https://mira-frontend-d85v.onrender.com
 ```
 

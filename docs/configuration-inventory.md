@@ -97,8 +97,28 @@ After deploy:
 1. `GET /v1/health`
 2. `GET /v1/debug/redis`
 3. `GET /v1/debug/config`
-4. Load thread list
-5. Start one trivial agent run
+4. `GET /v1/debug/features`
+5. Load thread list
+6. Start one trivial agent run
+
+## Feature readiness endpoint
+
+`GET /v1/debug/features` reports whether optional product modules are `configured`, `partial`, `not_configured`, or `disabled` without exposing secret values.
+
+Use this endpoint as the launch-readiness checklist for:
+
+- Google Docs/Slides export
+- PDF/PPTX export
+- Composio integrations, custom MCP, and triggers
+- Memory and VoyageAI embeddings
+- Novu notifications
+- Vapi voice
+- RevenueCat mobile billing
+- Reality Defender trust checks
+- Web research, media generation, Daytona sandboxes, and sandbox pool
+- Observability/evals
+
+`configured` means required environment/config switches are present. It does not replace manual QA for OAuth flows, billing purchases, Gmail isolation, voice calls, or generated export downloads.
 
 ## Notes
 

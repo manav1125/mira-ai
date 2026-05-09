@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from core.utils.config import EnvMode, config
 from core.utils.config_validation import (
     DOCUMENTED_OPTIONAL_ENV_GROUPS,
+    validate_feature_readiness,
     validate_runtime_configuration,
     should_fail_startup,
 )
@@ -45,6 +46,22 @@ def _clear_env(monkeypatch) -> None:
         "GOOGLE_CLIENT_SECRET",
         "STRIPE_SECRET_KEY",
         "STRIPE_WEBHOOK_SECRET",
+        "GOOGLE_REDIRECT_URI",
+        "REVENUECAT_API_KEY",
+        "REVENUECAT_PROJECT_ID",
+        "REVENUECAT_WEBHOOK_SECRET",
+        "VAPI_PRIVATE_KEY",
+        "VAPI_PUBLIC_KEY",
+        "VAPI_PHONE_NUMBER_ID",
+        "VAPI_WEBHOOK_SECRET",
+        "MEMORY_EMBEDDING_PROVIDER",
+        "MEMORY_EMBEDDING_MODEL",
+        "VOYAGE_API_KEY",
+        "REALITY_DEFENDER_API_KEY",
+        "LANGFUSE_PUBLIC_KEY",
+        "LANGFUSE_SECRET_KEY",
+        "BRAINTRUST_API_KEY",
+        "SANDBOX_POOL_ENABLED",
     }
     for keys in DOCUMENTED_OPTIONAL_ENV_GROUPS.values():
         candidate_keys.update(keys)
@@ -167,3 +184,58 @@ def test_warns_when_billing_credentials_are_missing(monkeypatch):
     assert "STRIPE_SECRET_KEY_MISSING" in warning_codes
     assert "STRIPE_WEBHOOK_SECRET_MISSING" in warning_codes
     assert should_fail_startup(report) is False
+
+
+def test_feature_readiness_reports_configured_partial_and_not_configured(monkeypatch):
+    _clear_env(monkeypatch)
+    _set_runtime_config(monkeypatch, env_mode=EnvMode.PRODUCTION, main_llm="anthropic")
+    monkeypatch.setattr(config, "ACTIVATE_MCPS_TRIG", True)
+
+    required_env = {
+        "SUPABASE_URL": "https://example.supabase.co",
+        "SUPABASE_ANON_KEY": "anon",
+        "SUPABASE_SERVICE_ROLE_KEY": "service",
+        "DATABASE_URL": "postgresql://postgres:password@localhost:5432/postgres",
+        "REDIS_INTERNAL_URL": "redis://private-redis:6379",
+        "MCP_CREDENTIAL_ENCRYPTION_KEY": "secret",
+        "ANTHROPIC_API_KEY": "anthropic",
+        "STRIPE_SECRET_KEY": "stripe-secret",
+        "STRIPE_WEBHOOK_SECRET": "stripe-webhook",
+        "STRIPE_TIER_2_20_ID_PROD": "plus",
+        "STRIPE_TIER_6_50_ID_PROD": "pro",
+        "STRIPE_TIER_25_200_ID_PROD": "ultra",
+        "STRIPE_CREDITS_10_PRICE_ID_PROD": "topup",
+        "COMPOSIO_API_KEY": "composio",
+        "GOOGLE_CLIENT_ID": "google-client",
+        "GOOGLE_CLIENT_SECRET": "google-secret",
+        "DAYTONA_API_KEY": "daytona",
+    }
+
+    for key, value in required_env.items():
+        monkeypatch.setenv(key, value)
+
+    report = validate_feature_readiness()
+
+    assert report["status"] == "partial"
+    assert report["features"]["agent_core"]["status"] == "configured"
+    assert report["features"]["billing"]["status"] == "configured"
+    assert report["features"]["composio_integrations"]["status"] == "partial"
+    assert report["features"]["google_exports"]["status"] == "partial"
+    assert report["features"]["voice"]["status"] == "not_configured"
+    assert "billing" not in report["blocking"]
+    assert "composio_integrations" in report["manual_qa_required"]
+
+
+def test_feature_readiness_marks_mcp_features_disabled_when_flag_is_off(monkeypatch):
+    _clear_env(monkeypatch)
+    _set_runtime_config(monkeypatch, env_mode=EnvMode.PRODUCTION, main_llm="anthropic")
+    monkeypatch.setattr(config, "ACTIVATE_MCPS_TRIG", False)
+
+    monkeypatch.setenv("MCP_CREDENTIAL_ENCRYPTION_KEY", "secret")
+    monkeypatch.setenv("COMPOSIO_API_KEY", "composio")
+
+    report = validate_feature_readiness()
+
+    assert report["features"]["composio_integrations"]["status"] == "disabled"
+    assert report["features"]["custom_mcp"]["status"] == "disabled"
+    assert report["features"]["triggers"]["status"] == "disabled"

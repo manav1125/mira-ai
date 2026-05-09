@@ -38,6 +38,7 @@ check_status() {
 check_json_endpoint "backend health" "$BACKEND_URL/health"
 check_json_endpoint "redis health" "$BACKEND_URL/debug/redis"
 check_json_endpoint "runtime config" "$BACKEND_URL/debug/config"
+check_json_endpoint "feature readiness" "$BACKEND_URL/debug/features"
 check_json_endpoint "canvas/media health" "$BACKEND_URL/canvas-ai/health"
 check_json_endpoint "composio health" "$BACKEND_URL/composio/health"
 check_status "unauthenticated threads blocked" "$BACKEND_URL/threads" "401"

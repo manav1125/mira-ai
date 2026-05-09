@@ -1,4 +1,4 @@
-import { isStagingMode } from '@/lib/config';
+import { isNotificationModeEnabled } from '@/lib/config';
 import { backendApi } from '../api-client';
 
 
@@ -38,8 +38,8 @@ export interface NotificationLog {
 
 export class NotificationAPI {
   private checkEnabled() {
-    if (!isStagingMode()) {
-      throw new Error('Notifications are only available in staging mode');
+    if (!isNotificationModeEnabled()) {
+      throw new Error('Notifications are not configured for this environment');
     }
   }
 
@@ -120,4 +120,3 @@ export class NotificationAPI {
 }
 
 export const notificationAPI = new NotificationAPI();
-
