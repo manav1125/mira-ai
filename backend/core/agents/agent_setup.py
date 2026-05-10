@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from core.utils.logger import logger
 from core.services.llm import make_llm_api_call
+from core.utils.config import config
 from core.utils.icon_generator import generate_icon_and_colors
 from core.utils.auth_utils import verify_and_get_user_id_from_jwt
 from core.versioning.version_service import get_version_service as _get_version_service
@@ -46,7 +47,7 @@ async def generate_agent_name_and_prompt(description: str) -> dict:
         Dict with keys: name, system_prompt
     """
     try:
-        model_name = "openai/gpt-5-nano-2025-08-07"
+        model_name = config.FAST_LLM_MODEL or "kortix/basic"
         
         system_prompt = """You are an AI worker configuration expert. Generate a name and system prompt for an AI worker.
 

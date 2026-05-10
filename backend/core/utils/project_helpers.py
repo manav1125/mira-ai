@@ -3,6 +3,7 @@ import json
 import traceback
 from core.services.supabase import DBConnection
 from core.services.llm import make_llm_api_call
+from core.utils.config import config
 from .logger import logger
 from .icon_generator import RELEVANT_ICONS
 
@@ -36,7 +37,7 @@ async def generate_and_update_project_name(project_id: str, prompt: str):
         db_conn = DBConnection()
         client = await db_conn.client
 
-        model_name = "openai/gpt-5-nano-2025-08-07"
+        model_name = config.FAST_LLM_MODEL or "kortix/basic"
         
         relevant_icons = RELEVANT_ICONS
         system_prompt = f"""You are a helpful assistant that generates extremely concise titles (2-4 words maximum) and selects appropriate icons for chat threads.

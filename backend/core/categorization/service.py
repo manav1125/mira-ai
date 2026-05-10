@@ -4,8 +4,9 @@ from typing import List
 from core.services.llm import make_llm_api_call
 from core.utils.logger import logger
 from core.utils.project_helpers import PROJECT_CATEGORIES
+from core.utils.config import config
 
-MODEL_NAME = "openai/gpt-5-nano-2025-08-07"
+MODEL_NAME = config.FAST_LLM_MODEL or "kortix/basic"
 
 
 async def categorize_from_messages(messages: List[dict]) -> List[str]:

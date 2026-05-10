@@ -49,7 +49,7 @@ DOCUMENTED_REQUIRED_ENV_GROUPS: Dict[str, Sequence[str]] = {
     "database": ("DATABASE_URL", "DATABASE_POOLER_URL"),
     "redis": ("REDIS_INTERNAL_URL", "REDIS_PRIVATE_URL", "REDIS_URL"),
     "security": ("MCP_CREDENTIAL_ENCRYPTION_KEY",),
-    "main_llm": ("MAIN_LLM",),
+    "main_llm": ("MAIN_LLM", "MAIN_LLM_MODEL", "FAST_LLM_MODEL"),
 }
 DOCUMENTED_OPTIONAL_ENV_GROUPS: Dict[str, Sequence[str]] = {
     "memory": ("MEMORY_EMBEDDING_PROVIDER", "MEMORY_EMBEDDING_MODEL", "VOYAGE_API_KEY", "OPENAI_API_KEY"),
