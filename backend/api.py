@@ -149,13 +149,13 @@ async def lifespan(app: FastAPI):
             composio_api.initialize(db)
         template_api.initialize(db)
         
-        # Start CloudWatch worker metrics publisher (production only)
-        if config.ENV_MODE == EnvMode.PRODUCTION:
-            from core.services import worker_metrics
+        from core.services import worker_metrics
+
+        # Start CloudWatch worker metrics publisher only when explicitly configured.
+        if worker_metrics.is_cloudwatch_metrics_enabled():
             _worker_metrics_task = asyncio.create_task(worker_metrics.start_cloudwatch_publisher())
         
         # Start Redis stream cleanup task (catches orphaned streams with no TTL)
-        from core.services import worker_metrics
         _stream_cleanup_task = asyncio.create_task(worker_metrics.start_stream_cleanup_task())
         
         # Start memory watchdog for observability
