@@ -19,6 +19,16 @@ class VapiWebhookHandler:
             return True
         
         try:
+            vapi_secret = request.headers.get("x-vapi-secret")
+            if vapi_secret and hmac.compare_digest(vapi_secret.strip(), secret):
+                return True
+
+            authorization = request.headers.get("authorization")
+            if authorization:
+                auth_value = authorization.replace("Bearer ", "", 1).strip()
+                if hmac.compare_digest(auth_value, secret):
+                    return True
+
             signature = request.headers.get("x-vapi-signature")
             if not signature:
                 return False
@@ -29,7 +39,8 @@ class VapiWebhookHandler:
                 body,
                 hashlib.sha256
             ).hexdigest()
-            return hmac.compare_digest(signature, expected_signature)
+            signature_value = signature.replace("sha256=", "", 1).strip()
+            return hmac.compare_digest(signature_value, expected_signature)
         except Exception as e:
             logger.error(f"Error verifying webhook signature: {e}")
             return False
@@ -539,4 +550,3 @@ class VapiWebhookHandler:
             await client.table("messages").insert(message_data).execute()
         except Exception as e:
             logger.error(f"Error saving transcript to thread: {e}")
-
