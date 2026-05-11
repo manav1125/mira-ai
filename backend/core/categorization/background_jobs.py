@@ -1,7 +1,6 @@
 """Categorization background job functions."""
 
 import asyncio
-import inspect
 from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any
 
@@ -108,14 +107,10 @@ class _DispatchWrapper:
     def send(self, *args, **kwargs):
         import asyncio
         try:
-            asyncio.get_running_loop()
-            result = self._dispatch_fn(*args, **kwargs)
-            if inspect.isawaitable(result):
-                asyncio.create_task(result)
+            loop = asyncio.get_running_loop()
+            asyncio.create_task(self._dispatch_fn(*args, **kwargs))
         except RuntimeError:
-            result = self._dispatch_fn(*args, **kwargs)
-            if inspect.isawaitable(result):
-                asyncio.run(result)
+            asyncio.run(self._dispatch_fn(*args, **kwargs))
     
     def send_with_options(self, args=None, kwargs=None, delay=None):
         args = args or ()

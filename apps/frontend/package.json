@@ -3,9 +3,6 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "generate:well-known": "node ./scripts/generate-well-known.mjs",
-    "predev": "pnpm run generate:well-known",
-    "prebuild": "pnpm run generate:well-known",
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",

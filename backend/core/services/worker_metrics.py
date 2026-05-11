@@ -18,24 +18,11 @@ from core.utils.config import config, EnvMode
 _cloudwatch_client = None
 
 
-def is_cloudwatch_metrics_enabled() -> bool:
-    """Return True only when CloudWatch metrics are explicitly configured."""
-    if config.ENV_MODE != EnvMode.PRODUCTION:
-        return False
-
-    explicit_flag = os.getenv("CLOUDWATCH_METRICS_ENABLED")
-    if explicit_flag is not None:
-        return explicit_flag.strip().lower() in ("true", "t", "yes", "y", "1")
-
-    # Avoid noisy production loops on Render unless AWS credentials are present.
-    return bool(os.getenv("AWS_ACCESS_KEY_ID") and os.getenv("AWS_SECRET_ACCESS_KEY"))
-
-
 def _get_cloudwatch_client():
     """Get or create CloudWatch client (production only)."""
     global _cloudwatch_client
     
-    if not is_cloudwatch_metrics_enabled():
+    if config.ENV_MODE != EnvMode.PRODUCTION:
         return None
         
     if _cloudwatch_client is None:
@@ -168,10 +155,6 @@ async def start_cloudwatch_publisher(interval_seconds: int = 60):
     Args:
         interval_seconds: How often to publish (default 60s)
     """
-    if not is_cloudwatch_metrics_enabled():
-        logger.info("CloudWatch API instance metrics publisher disabled")
-        return
-
     logger.info(f"Starting CloudWatch API instance metrics publisher (interval: {interval_seconds}s)")
     
     while True:

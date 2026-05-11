@@ -9,7 +9,6 @@ import uuid
 import base64
 from typing import Optional, List, Tuple
 from core.services.llm import make_llm_api_call
-from core.utils.config import config
 from .logger import logger
 
 
@@ -92,7 +91,7 @@ async def generate_smart_filename(
     truncated_prompt = prompt[:200] if len(prompt) > 200 else prompt
     
     try:
-        model_name = config.FAST_LLM_MODEL or "kortix/basic"
+        model_name = "openai/gpt-5-nano-2025-08-07"
         
         # Same style as thread naming - concise Title Case
         system_prompt = """You are a file naming assistant. Generate a short, clean title (2-4 words) that describes the content.

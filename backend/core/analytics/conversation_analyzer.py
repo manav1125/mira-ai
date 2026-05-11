@@ -14,7 +14,6 @@ from datetime import datetime, timedelta
 
 from core.services.supabase import DBConnection
 from core.services.llm import make_llm_api_call
-from core.utils.config import config
 from core.utils.logger import logger
 
 # Default categories (from project_helpers.py - LLM picks or extends)
@@ -364,7 +363,7 @@ async def analyze_conversation(
                 {"role": "system", "content": analysis_prompt},
                 {"role": "user", "content": conversation_text}
             ],
-            model_name=config.FAST_LLM_MODEL or "kortix/basic",
+            model_name="openai/gpt-5-nano-2025-08-07",
             temperature=0.3,
             stream=False,
             response_format={"type": "json_object"},

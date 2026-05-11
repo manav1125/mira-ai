@@ -9,7 +9,6 @@ class PipelineContext:
     thread_id: str
     project_id: str
     account_id: str
-    requesting_user_id: Optional[str]
     model_name: str
     mode: Optional[str] = None
     agent_config: Optional[Dict[str, Any]] = None

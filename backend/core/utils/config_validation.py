@@ -49,7 +49,7 @@ DOCUMENTED_REQUIRED_ENV_GROUPS: Dict[str, Sequence[str]] = {
     "database": ("DATABASE_URL", "DATABASE_POOLER_URL"),
     "redis": ("REDIS_INTERNAL_URL", "REDIS_PRIVATE_URL", "REDIS_URL"),
     "security": ("MCP_CREDENTIAL_ENCRYPTION_KEY",),
-    "main_llm": ("MAIN_LLM", "MAIN_LLM_MODEL", "FAST_LLM_MODEL"),
+    "main_llm": ("MAIN_LLM",),
 }
 DOCUMENTED_OPTIONAL_ENV_GROUPS: Dict[str, Sequence[str]] = {
     "memory": ("MEMORY_EMBEDDING_PROVIDER", "MEMORY_EMBEDDING_MODEL", "VOYAGE_API_KEY", "OPENAI_API_KEY"),
@@ -67,16 +67,9 @@ DOCUMENTED_OPTIONAL_ENV_GROUPS: Dict[str, Sequence[str]] = {
         "REVENUECAT_PROJECT_ID",
         "REVENUECAT_WEBHOOK_SECRET",
     ),
-    "internal_webhooks": ("SUPABASE_WEBHOOK_SECRET", "TRIGGER_WEBHOOK_SECRET", "WEBHOOK_BASE_URL"),
     "voice": ("VAPI_PRIVATE_KEY", "VAPI_PUBLIC_KEY", "VAPI_PHONE_NUMBER_ID", "VAPI_WEBHOOK_SECRET"),
     "trust": ("REALITY_DEFENDER_API_KEY",),
-    "observability": (
-        "LANGFUSE_PUBLIC_KEY",
-        "LANGFUSE_SECRET_KEY",
-        "LANGFUSE_HOST",
-        "BRAINTRUST_API_KEY",
-        "CLOUDWATCH_METRICS_ENABLED",
-    ),
+    "observability": ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LANGFUSE_HOST", "BRAINTRUST_API_KEY"),
 }
 DIAGNOSTIC_ENDPOINTS: Sequence[str] = ("/v1/health", "/v1/debug/redis", "/v1/debug/config")
 
@@ -136,16 +129,8 @@ FEATURE_REQUIREMENTS: Dict[str, Dict[str, Any]] = {
         "label": "Scheduled and app triggers",
         "category": "automation",
         "required_any": (("redis", CORE_REDIS_KEYS),),
-        "recommended_all": ("SUPABASE_WEBHOOK_SECRET",),
         "config_flags": ("ACTIVATE_MCPS_TRIG",),
         "manual_qa": "Create one scheduled trigger and one app-triggered run.",
-    },
-    "internal_webhooks": {
-        "label": "Internal Supabase webhooks",
-        "category": "automation",
-        "required_all": ("SUPABASE_WEBHOOK_SECRET",),
-        "recommended_all": ("WEBHOOK_BASE_URL",),
-        "manual_qa": "Run Supabase user-created and stale-project categorization webhooks with matching secrets.",
     },
     "google_exports": {
         "label": "Google Docs/Slides export",
@@ -231,9 +216,6 @@ FEATURE_REQUIREMENTS: Dict[str, Dict[str, Any]] = {
         "category": "operations",
         "required_any": (
             ("tracing_or_evals", ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "BRAINTRUST_API_KEY")),
-        ),
-        "recommended_any": (
-            ("metrics_sink", ("CLOUDWATCH_METRICS_ENABLED", "LANGFUSE_PUBLIC_KEY", "BRAINTRUST_API_KEY")),
         ),
         "manual_qa": "Verify failed runs include account, thread, run, provider, tool, cost, and error class.",
     },
@@ -440,7 +422,6 @@ def _validate_recommendations(findings: List[ConfigFinding]) -> None:
         ("notifications", "NOVU_SECRET_KEY", "Novu notifications will be unavailable."),
         ("billing", "STRIPE_SECRET_KEY", "Stripe checkout and subscription management will be unavailable."),
         ("billing", "STRIPE_WEBHOOK_SECRET", "Stripe webhook signature verification will be unavailable."),
-        ("webhooks", "SUPABASE_WEBHOOK_SECRET", "Supabase-created users and internal cron hooks may fail authentication."),
         ("google", "GOOGLE_CLIENT_ID", "Google Docs/Slides export OAuth will be unavailable."),
         ("google", "GOOGLE_CLIENT_SECRET", "Google Docs/Slides export OAuth will be unavailable."),
     ]

@@ -46,9 +46,6 @@ def _clear_env(monkeypatch) -> None:
         "GOOGLE_CLIENT_SECRET",
         "STRIPE_SECRET_KEY",
         "STRIPE_WEBHOOK_SECRET",
-        "SUPABASE_WEBHOOK_SECRET",
-        "TRIGGER_WEBHOOK_SECRET",
-        "WEBHOOK_BASE_URL",
         "GOOGLE_REDIRECT_URI",
         "REVENUECAT_API_KEY",
         "REVENUECAT_PROJECT_ID",
@@ -64,7 +61,6 @@ def _clear_env(monkeypatch) -> None:
         "LANGFUSE_PUBLIC_KEY",
         "LANGFUSE_SECRET_KEY",
         "BRAINTRUST_API_KEY",
-        "CLOUDWATCH_METRICS_ENABLED",
         "SANDBOX_POOL_ENABLED",
     }
     for keys in DOCUMENTED_OPTIONAL_ENV_GROUPS.values():
@@ -205,7 +201,6 @@ def test_feature_readiness_reports_configured_partial_and_not_configured(monkeyp
         "ANTHROPIC_API_KEY": "anthropic",
         "STRIPE_SECRET_KEY": "stripe-secret",
         "STRIPE_WEBHOOK_SECRET": "stripe-webhook",
-        "SUPABASE_WEBHOOK_SECRET": "supabase-webhook",
         "STRIPE_TIER_2_20_ID_PROD": "plus",
         "STRIPE_TIER_6_50_ID_PROD": "pro",
         "STRIPE_TIER_25_200_ID_PROD": "ultra",
@@ -225,7 +220,6 @@ def test_feature_readiness_reports_configured_partial_and_not_configured(monkeyp
     assert report["features"]["agent_core"]["status"] == "configured"
     assert report["features"]["billing"]["status"] == "configured"
     assert report["features"]["composio_integrations"]["status"] == "partial"
-    assert report["features"]["internal_webhooks"]["status"] == "partial"
     assert report["features"]["google_exports"]["status"] == "partial"
     assert report["features"]["voice"]["status"] == "not_configured"
     assert "billing" not in report["blocking"]

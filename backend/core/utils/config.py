@@ -60,7 +60,6 @@ class Configuration:
     #   - openai: openrouter/openai/gpt-4o-mini
     #   - minimax: openrouter/minimax/minimax-m2.1
     MAIN_LLM_MODEL: Optional[str] = None
-    FAST_LLM_MODEL: Optional[str] = "kortix/basic"
     # ============================================
     
     # ===== PRESENCE CONFIGURATION =====
