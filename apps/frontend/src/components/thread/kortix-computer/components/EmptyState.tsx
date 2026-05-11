@@ -1,52 +1,25 @@
 'use client';
 
-import { memo } from 'react';
-import Image from 'next/image';
+import { Activity } from 'lucide-react';
 
 interface EmptyStateProps {
-  t: (key: string) => string;
+  t?: (key: string) => string;
 }
 
-export const EmptyState = memo(function EmptyState({ t }: EmptyStateProps) {
+export function EmptyState({ t }: EmptyStateProps) {
   return (
-    <div className="flex flex-col items-center justify-center h-full w-full">
-      {/* Empty state container */}
-      <div className="flex flex-col items-center space-y-6">
-        {/* Logo with subtle glow effect */}
-        <div className="relative">
-          {/* Ambient glow behind logo */}
-          <div className="absolute inset-0 blur-3xl opacity-15 dark:opacity-5 bg-gradient-to-b from-zinc-400 to-transparent scale-150" />
-          
-          {/* Logo - dark mode (white logo) */}
-          <Image
-            src="/kortix-computer-white.svg"
-            alt="Mira Computer"
-            width={240}
-            height={27}
-            className="hidden dark:block relative z-10 "
-            priority
-          />
-          
-          {/* Logo - light mode (black logo) */}
-          <Image
-            src="/kortix-computer-black.svg"
-            alt="Mira Computer"
-            width={240}
-            height={27}
-            className="block dark:hidden relative z-10"
-            priority
-          />
+    <div className="flex h-full items-center justify-center bg-muted/20 p-8">
+      <div className="max-w-sm text-center">
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border bg-background shadow-sm">
+          <Activity className="h-6 w-6 text-muted-foreground" />
         </div>
-
-        {/* Empty state text */}
-        <div className="flex flex-col items-center space-y-2 max-w-xs text-center">
-          <p className="text-sm text-zinc-400 dark:text-zinc-500 font-light">
-            {t('emptyActionsDescription')}
-          </p>
-        </div>
+        <h3 className="text-base font-semibold">
+          {t?.('computer.emptyTitle') || 'Worker actions will appear here'}
+        </h3>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {t?.('computer.emptyDescription') || 'Tools, files, and browser activity show up as Mira works.'}
+        </p>
       </div>
     </div>
   );
-});
-
-EmptyState.displayName = 'EmptyState';
+}
